@@ -129,7 +129,9 @@ class AssessmentRunner:
     ) -> None:
         discovery = _discovery(checkpoint)
         investigator = Investigator(
-            self._loop_factory(self._config.investigation_limits), release=self._config.release
+            self._loop_factory(self._config.investigation_limits),
+            self._toolbox,
+            release=self._config.release,
         )
         for target in self._targets(checkpoint):
             previous = checkpoint.results.get(target.issue_key)

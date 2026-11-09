@@ -8,7 +8,7 @@ import pytest
 
 from tests.agent_support import AgentWorld, ScriptedModel, build_world, call, make_loop
 from tests.fakes import Fault
-from tyn.agent.investigate import DOWNGRADE_NOTE, Investigator, check_verdict
+from tyn.agent.investigate import DOWNGRADE_NOTE, UNREAD_NOTE, Investigator, check_verdict
 from tyn.agent.llm import ChatResponse, ContextTooLargeError, ModelError
 from tyn.agent.loop import PRUNED_STUB, LoopLimits
 from tyn.agent.models import Decision, RequirementResult, RequirementTarget, TokenUsage
@@ -34,7 +34,7 @@ def investigate(
     model = ScriptedModel(steps)
     loop, trace = make_loop(model, world.toolbox, limits)
     key = world.key(requirement)
-    result = Investigator(loop, release="R5.0").investigate(
+    result = Investigator(loop, world.toolbox, release="R5.0").investigate(
         RequirementTarget(
             issue_key=key, source_id=requirement, summary=f"Requirement {requirement}"
         ),
@@ -43,6 +43,14 @@ def investigate(
         manifest_rules="Assess the linked requirements.",
     )
     return result, model, trace
+
+
+def read_links(world: AgentWorld) -> list[ChatResponse]:
+    """Open every record linked from RQ-1 (its evidence and that evidence's dependency)."""
+    return [
+        call("get_issue", {"issue_key": world.key("EV-10")}, "read-10"),
+        call("get_issue", {"issue_key": world.key("EV-11")}, "read-11"),
+    ]
 
 
 def verdict(decision: str, support: list[dict[str, str]], **extra: Any) -> ChatResponse:
@@ -107,13 +115,13 @@ def test_invalid_citation_gets_one_repair(world: AgentWorld) -> None:
     result, model, _ = investigate(
         world,
         [
-            call("get_issue", {"issue_key": world.key("EV-10")}),
+            *read_links(world),
             verdict("PASS", [{"issue_key": world.key("EV-10"), "comment_id": "999", "note": "x"}]),
             verdict("PASS", [{"issue_key": world.key("EV-10"), "comment_id": passed, "note": "x"}]),
         ],
     )
     assert result.verdict.decision is Decision.PASS
-    assert model.requests[2]["tool_choice"] == {
+    assert model.requests[3]["tool_choice"] == {
         "type": "function",
         "function": {"name": "submit_verdict"},
     }
@@ -159,6 +167,7 @@ def test_malformed_tool_arguments_are_returned_as_errors(world: AgentWorld) -> N
         world,
         [
             call("get_issue", '{"issue_key": "TYN-5"'),
+            *read_links(world),
             verdict("INSUFFICIENT_EVIDENCE", [], outstanding=["nothing read"]),
         ],
     )
@@ -212,6 +221,7 @@ def test_old_results_are_pruned_to_fit_the_input_budget(world: AgentWorld) -> No
             call("get_issue", {"issue_key": world.key("EV-10")}, "a"),
             call("record_finding", {"note": "EV-10 shows a target-scope pass"}, "n"),
             call("get_issue", {"issue_key": world.key("EV-30")}, "b"),
+            call("get_issue", {"issue_key": world.key("EV-11")}, "c"),
             verdict("INSUFFICIENT_EVIDENCE", []),
         ],
         limits=LoopLimits(input_budget=1_800),
@@ -245,7 +255,9 @@ def test_model_failure_marks_the_requirement_failed(world: AgentWorld) -> None:
 
 def test_text_reply_is_nudged_back_to_tools(world: AgentWorld) -> None:
     text_only = ChatResponse(content="I think it passes.", tool_calls=[], usage=TokenUsage())
-    result, model, _ = investigate(world, [text_only, verdict("INSUFFICIENT_EVIDENCE", [])])
+    result, model, _ = investigate(
+        world, [text_only, *read_links(world), verdict("INSUFFICIENT_EVIDENCE", [])]
+    )
     assert model.requests[1]["messages"][-1]["content"].startswith("Reply with a tool call")
     assert result.status == "completed"
 
@@ -255,7 +267,7 @@ def test_model_reported_observation_must_cite_a_shown_comment(world: AgentWorld)
     result, _, _ = investigate(
         world,
         [
-            call("get_issue", {"issue_key": world.key("EV-10")}),
+            *read_links(world),
             verdict(
                 "INSUFFICIENT_EVIDENCE",
                 [],
@@ -278,6 +290,7 @@ def test_rejected_submissions_are_traced_with_their_reason(world: AgentWorld) ->
     _, _, trace = investigate(
         world,
         [
+            *read_links(world),
             verdict("PASS", [{"issue_key": "TYN-999", "note": "x"}]),
             verdict("INSUFFICIENT_EVIDENCE", []),
         ],
@@ -288,6 +301,49 @@ def test_rejected_submissions_are_traced_with_their_reason(world: AgentWorld) ->
 
 
 def test_seed_suggests_starting_from_the_requirement_links(world: AgentWorld) -> None:
-    _, model, _ = investigate(world, [verdict("INSUFFICIENT_EVIDENCE", [])])
+    _, model, _ = investigate(world, [*read_links(world), verdict("INSUFFICIENT_EVIDENCE", [])])
     seed = model.requests[0]["messages"][1]["content"]
     assert f"Start with get_linked_issues for {world.key('RQ-1')}" in seed
+
+
+def test_linked_closure_follows_outgoing_links_in_scope(world: AgentWorld) -> None:
+    closure = world.toolbox.linked_closure(world.key("RQ-1"))
+    assert closure == [world.key("EV-10"), world.key("EV-11")]
+    assert world.out_of_scope_key not in closure
+    assert world.key("NOISE-1") not in closure
+
+
+def test_unread_linked_records_are_requested_before_a_verdict(world: AgentWorld) -> None:
+    passed = comment_id(world, "EV-10", "10 of 10")
+    support = [{"issue_key": world.key("EV-10"), "comment_id": passed, "note": "x"}]
+    result, model, _ = investigate(
+        world,
+        [
+            call("get_issue", {"issue_key": world.key("EV-10")}),
+            verdict("FAIL", support),
+            call("get_issue", {"issue_key": world.key("EV-11")}),
+            verdict("FAIL", support),
+        ],
+    )
+    rejection = model.requests[2]["messages"][-1]["content"]
+    assert rejection.startswith("rejected: before deciding, open")
+    assert world.key("EV-11") in rejection
+    assert model.requests[2]["tool_choice"] == "auto"
+    assert result.verdict.decision is Decision.FAIL
+    assert result.status == "completed"
+
+
+def test_pass_that_never_reads_linked_records_is_downgraded(world: AgentWorld) -> None:
+    passed = comment_id(world, "EV-10", "10 of 10")
+    support = [{"issue_key": world.key("EV-10"), "comment_id": passed, "note": "x"}]
+    result, _, _ = investigate(
+        world,
+        [
+            call("get_issue", {"issue_key": world.key("EV-10")}),
+            verdict("PASS", support),
+            verdict("PASS", support),
+        ],
+    )
+    assert result.verdict.decision is Decision.INSUFFICIENT_EVIDENCE
+    assert result.verdict.explanation.endswith(UNREAD_NOTE)
+    assert any(world.key("EV-11") in note for note in result.validation_notes)

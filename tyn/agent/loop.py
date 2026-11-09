@@ -50,6 +50,7 @@ class SubmitCheck:
     error: str = ""
     fallback: Any = None
     notes: list[str] = field(default_factory=list)
+    force_resubmit: bool = True
 
 
 @dataclass
@@ -255,7 +256,9 @@ class AgentLoop:
             if check.fallback is None:
                 state.failure = f"submission invalid: {check.error}"
             return True
-        state.forced = True
+        # Citation problems are fixed by resubmitting; unread linked records
+        # need tool calls first, so only the former forces the submit tool.
+        state.forced = check.force_resubmit
         state.turns.append(_tool_message(call_id, f"rejected: {check.error}"))
         return False
 
