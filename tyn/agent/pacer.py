@@ -18,9 +18,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from tyn.agent.models import TokenUsage
 from tyn.errors import TynError
@@ -139,7 +139,18 @@ class _DayUsage(BaseModel):
     prompt: int = 0
     completion: int = 0
     reasoning: int = 0
+    cached: int = 0
     total: int = 0
+    counted: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _count_legacy_totals(cls, data: Any) -> Any:
+        # Entries written before cached tokens were tracked count in full,
+        # which errs toward stopping early rather than hitting the limit.
+        if isinstance(data, dict) and "counted" not in data:
+            return {**data, "counted": data.get("total", 0)}
+        return data
 
 
 class _UsageFile(BaseModel):
@@ -185,8 +196,8 @@ class DailyBudget:
         return day.setdefault(self._model, _DayUsage())
 
     def used_today(self) -> int:
-        """Return tokens recorded for this model today."""
-        return self._entry().total
+        """Return tokens counted toward the daily limit today (cached excluded)."""
+        return self._entry().counted
 
     def check(self, upcoming: int) -> None:
         """Raise if ``upcoming`` more tokens would exceed today's limit."""
@@ -201,5 +212,7 @@ class DailyBudget:
         entry.prompt += usage.prompt
         entry.completion += usage.completion
         entry.reasoning += usage.reasoning
+        entry.cached += usage.cached
         entry.total += usage.total
+        entry.counted += usage.rate_limited
         atomic_write_text(self._path, self._data.model_dump_json(indent=2) + "\n")

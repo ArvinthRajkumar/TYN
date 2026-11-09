@@ -265,7 +265,7 @@ class ResilientModel:
                 if attempt < self._policy.max_attempts:
                     self._backoff(attempt, exc)
                 continue
-            self._pacer.settle(charge, response.usage.total)
+            self._pacer.settle(charge, response.usage.rate_limited)
             self._pacer.observe_remaining(
                 _int_header(response.headers, "x-ratelimit-remaining-tokens"),
                 _int_header(response.headers, "x-ratelimit-limit-tokens"),
