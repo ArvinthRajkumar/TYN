@@ -71,3 +71,41 @@ def test_limit_must_be_positive(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         cli.main(["import", "--limit", "0"])
     assert "at least 1" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("jira_env")
+def test_report_command_renders_saved_checkpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_report import _checkpoint
+    from tyn.agent.checkpoint import CheckpointStore
+
+    monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key-0123456789")
+    monkeypatch.setattr(cli, "load_jira_settings", cli_load_without_env_file)
+    monkeypatch.setattr(cli, "load_groq_settings", lambda: _groq_without_env_file())
+    checkpoint = _checkpoint("Fails on the target build.").model_copy(
+        update={"label": "scope", "release": "R5.0", "project": "TYN"}
+    )
+    CheckpointStore("TYN", "scope", "R5.0").save(checkpoint)
+    code = cli.main(["report", "--label", "scope", "--release", "R5.0"])
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_FAILURES
+    assert "Overall decision: BLOCKED" in out
+    assert "reports/release_report.md" in out
+    assert (tmp_path / "reports" / "metrics.json").exists()
+
+
+def test_report_without_checkpoint_is_an_error(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, jira_env: None
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key-0123456789")
+    monkeypatch.setattr(cli, "load_jira_settings", cli_load_without_env_file)
+    monkeypatch.setattr(cli, "load_groq_settings", lambda: _groq_without_env_file())
+    assert cli.main(["report", "--label", "scope", "--release", "R5.0"]) == cli.EXIT_ERROR
+    assert "run assess first" in capsys.readouterr().err
+
+
+def _groq_without_env_file() -> object:
+    from tyn.config import load_groq_settings
+
+    return load_groq_settings(env_file=None)
