@@ -87,3 +87,17 @@ def test_adf_to_text_handles_rich_nodes() -> None:
     }
     assert adf_to_text(doc) == "a\nb\ni"
     assert adf_to_text(None) == ""
+
+
+def test_key_in_validates_every_key() -> None:
+    assert jql.key_in(["TYN-1", "TYN-22"]) == "key in (TYN-1, TYN-22)"
+    with pytest.raises(jql.JqlValueError):
+        jql.key_in(["TYN-1", "TYN-2) OR (project = X"])
+    with pytest.raises(jql.JqlValueError):
+        jql.key_in([])
+
+
+def test_summary_search_keeps_only_words() -> None:
+    assert jql.summary_contains('run* "x" OR (y)~') == 'summary ~ "run x OR y"'
+    with pytest.raises(jql.JqlValueError):
+        jql.summary_contains("***")

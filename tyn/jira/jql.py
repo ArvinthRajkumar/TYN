@@ -48,3 +48,32 @@ def label_in(labels: list[str]) -> str:
     if not labels:
         raise JqlValueError("label_in needs at least one label")
     return "labels in (" + ", ".join(quote(label) for label in labels) + ")"
+
+
+_ISSUE_KEY: Final = re.compile(r"^[A-Z][A-Z0-9_]{1,9}-\d{1,7}$")
+# Characters with meaning in Jira's text search syntax are replaced by spaces,
+# so a summary search can only ever match words.
+_TEXT_UNSAFE: Final = re.compile(r"[^A-Za-z0-9 ]+")
+
+
+def is_issue_key(value: str) -> bool:
+    """Return True for a syntactically valid Jira issue key."""
+    return bool(_ISSUE_KEY.fullmatch(value))
+
+
+def key_in(keys: list[str]) -> str:
+    """Return a clause matching any of ``keys``; every key is validated."""
+    if not keys:
+        raise JqlValueError("key_in needs at least one key")
+    bad = [key for key in keys if not is_issue_key(key)]
+    if bad:
+        raise JqlValueError(f"invalid issue keys: {', '.join(bad[:3])}")
+    return "key in (" + ", ".join(keys) + ")"
+
+
+def summary_contains(text: str) -> str:
+    """Return a summary text-search clause built from plain words only."""
+    words = " ".join(_TEXT_UNSAFE.sub(" ", text).split())
+    if not words:
+        raise JqlValueError("summary search needs at least one letter or digit")
+    return f"summary ~ {quote(words)}"
