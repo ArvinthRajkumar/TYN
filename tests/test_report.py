@@ -152,6 +152,7 @@ def test_artifacts_cover_decisions_evidence_and_partial_state(
     assert metrics["totals"]["reasoning_tokens"] == 40
     assert metrics["context"]["max_prompt_tokens_per_request"] == 4000
     assert len((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+    assert "| Wait ms |" in (tmp_path / "trace.md").read_text(encoding="utf-8")
     assert 'get_issue {"issue_key":"TYN-5"} [ok]' in (tmp_path / "trace.md").read_text(
         encoding="utf-8"
     )

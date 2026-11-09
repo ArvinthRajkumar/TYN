@@ -234,7 +234,14 @@ def trace_events(checkpoint: Checkpoint) -> list[dict[str, Any]]:
 
 def render_trace_markdown(events: list[dict[str, Any]], release: str) -> str:
     """Render the trace as one table per scope."""
-    lines = [f"# Investigation trace: {release}", ""]
+    lines = [
+        f"# Investigation trace: {release}",
+        "",
+        "Every model and tool call in order. Latency excludes waits; Wait ms is time spent "
+        "in the client-side token pacer or retry backoff before the request. Tool result "
+        "tokens are estimates; model tokens are as reported by the provider.",
+        "",
+    ]
     scope = None
     for event in events:
         if event["scope"] != scope:
@@ -244,8 +251,8 @@ def render_trace_markdown(events: list[dict[str, Any]], release: str) -> str:
                 f"## {scope}",
                 "",
                 "| t (s) | Turn | Event | Detail | Result chars | Tokens in/out/reasoning "
-                "| Latency ms |",
-                "| --- | --- | --- | --- | --- | --- | --- |",
+                "| Latency ms | Wait ms |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         lines.append(_trace_row(event))
     lines.append("")
@@ -275,7 +282,7 @@ def _trace_row(event: dict[str, Any]) -> str:
     detail = detail.replace("|", "\\|")
     return (
         f"| {event['t']} | {event.get('turn', '')} | {kind} | {detail} | {chars} | {tokens} | "
-        f"{event.get('latency_ms', '')} |"
+        f"{event.get('latency_ms', '')} | {event.get('wait_ms', '')} |"
     )
 
 
