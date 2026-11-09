@@ -1,0 +1,7 @@
+# Runtime dependencies. Compile with:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements.txt requirements.in
+groq
+httpx
+pydantic
+pydantic-settings
+python-dotenv

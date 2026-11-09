@@ -1,0 +1,13 @@
+# Development and CI dependencies. Includes the runtime set so one hashed file
+# installs everything. Compile with:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-dev.txt requirements-dev.in
+-r requirements.in
+-c requirements.txt
+detect-secrets
+mypy
+pip-audit
+pip-tools
+pre-commit
+pytest
+pytest-cov
+ruff

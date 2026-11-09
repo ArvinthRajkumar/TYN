@@ -1,0 +1,46 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Company-supplied material: never committed
+docs/brief.pdf
+inputs/dataset.json
+inputs/*
+!inputs/README.md
+
+# Runtime state (checkpoints, usage counters, importer id mapping)
+state/
+
+# Raw model transcripts are local only; curated reports are committed
+reports/raw/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling caches and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Logs
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+.DS_Store
