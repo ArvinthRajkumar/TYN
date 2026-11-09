@@ -62,6 +62,7 @@ class FakeJira:
         ]
         self.faults: list[Fault] = []
         self.calls: list[tuple[str, str]] = []
+        self.queries: list[str] = []
         self._ids = itertools.count(10_000)
         self._numbers = itertools.count(1)
 
@@ -94,6 +95,10 @@ class FakeJira:
 
     def comment_texts(self, key: str) -> list[str]:
         return [adf_to_text(c["body"]) for c in self.comments.get(key, [])]
+
+    def link(self, from_key: str, to_key: str, type_name: str = "Relates") -> None:
+        """Add a link directly, bypassing the API (test setup only)."""
+        self.links[str(next(self._ids))] = {"from": from_key, "to": to_key, "type": type_name}
 
     def add_issue(self, labels: list[str], summary: str = "existing") -> str:
         key = f"{self.project}-{next(self._numbers)}"
@@ -169,11 +174,18 @@ class FakeJira:
         jql = body["jql"]
         project = re.search(r'project = "((?:[^"\\]|\\.)*)"', jql)
         wanted = [_unescape(v) for v in re.findall(r'labels = "((?:[^"\\]|\\.)*)"', jql)]
+        self.queries.append(jql)
+        keys = re.search(r"key in \(([^)]*)\)", jql)
+        allowed = {k.strip() for k in keys.group(1).split(",")} if keys else None
+        text = re.search(r'summary ~ "((?:[^"\\]|\\.)*)"', jql)
+        words = _unescape(text.group(1)).lower().split() if text else []
         hits = [
             issue
             for issue in self.issues.values()
             if (project is None or issue["key"].startswith(_unescape(project.group(1)) + "-"))
             and all(label in issue["fields"]["labels"] for label in wanted)
+            and (allowed is None or issue["key"] in allowed)
+            and all(word in issue["fields"]["summary"].lower() for word in words)
         ]
         start = int(body.get("nextPageToken") or 0)
         size = int(body.get("maxResults", 50))
