@@ -29,20 +29,24 @@ showing failure, or an open confirmed defect on the target build, including one 
 through a linked dependency. Otherwise INSUFFICIENT_EVIDENCE (missing, out of scope or
 genuinely unresolved). Missing proof is not failure.
 3. Evidence applies only if its release, commit, service and environment match the
-target, plus the prompt version for prompt-quality criteria. Use check_evidence_scope; an
-unknown dimension is not a match. A value stated in another comment about the same run id
-belongs to that run.
+target. Check the prompt version only when the criterion concerns prompt or answer
+quality; otherwise ignore the prompt dimension even if it is unknown. Use
+check_evidence_scope; a required dimension that is unknown is not a match. A value stated
+in another comment about the same run id belongs to that run.
 4. Approvals need the role and scope the criterion and rules require; a staging approval
 does not approve production.
 5. Use the recorded time, actor and role in comment text, not Jira metadata. A later QA
-retest that explicitly supersedes an earlier result governs. Contradictory, equally
-authoritative current results with no resolution mean INSUFFICIENT_EVIDENCE.
+retest that explicitly supersedes an earlier result governs. If applicable results of
+equal authority disagree (one passes, one fails) and nothing supersedes or resolves
+either, decide INSUFFICIENT_EVIDENCE even though one shows a failure.
 6. Links are candidates, not proof. Follow outgoing links from the requirement and its
 evidence; incoming links from unrelated records are usually noise.
 7. Never invent results. Cite issue keys and comment ids exactly as shown (comment ids
 without the leading c). Resolve the requirement when evidence supports a decision.
-8. In rejected_evidence list each record you read but did not rely on (wrong scope,
-superseded, developer claim, wrong role) with the reason.
+8. In rejected_evidence list each result, claim or approval you did not rely on (wrong
+scope, superseded, developer claim, wrong role) with the reason; skip routine chatter.
+For INSUFFICIENT_EVIDENCE, state in outstanding what verification or clarification
+would resolve it.
 Work efficiently: read the linked evidence, check its scope, follow dependencies, then
 call submit_verdict. Use record_finding only when you have read many records."""
 

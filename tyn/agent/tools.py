@@ -53,6 +53,7 @@ class ToolOutput:
     issue_keys: set[str] = field(default_factory=set)
     comment_ids: dict[str, set[str]] = field(default_factory=dict)
     observations: list[Observation] = field(default_factory=list)
+    opened: set[str] = field(default_factory=set)
 
     def show_issue(self, key: str) -> None:
         """Record that ``key`` was shown."""
@@ -71,10 +72,12 @@ class Ledger:
     issue_keys: set[str] = field(default_factory=set)
     comment_ids: dict[str, set[str]] = field(default_factory=dict)
     observations: list[Observation] = field(default_factory=list)
+    opened: set[str] = field(default_factory=set)
 
     def record(self, output: ToolOutput) -> None:
         """Add one tool result's identifiers."""
         self.issue_keys |= output.issue_keys
+        self.opened |= output.opened
         for key, ids in output.comment_ids.items():
             self.comment_ids.setdefault(key, set()).update(ids)
         for observation in output.observations:
@@ -373,6 +376,32 @@ class JiraToolbox:
             jql.label_equals(f"{LABEL_PREFIX}release-{release}"),
         )
 
+    def linked_closure(self, key: str, *, depth: int = 2, cap: int = 8) -> list[str]:
+        """Return in-scope records reachable by outgoing links, nearest first.
+
+        Used to check that an investigation opened the requirement's linked
+        evidence, and that evidence's own dependencies, before deciding.
+        """
+        start = self._check_key(key)
+        seen = {start}
+        frontier = [start]
+        found: list[str] = []
+        for _ in range(depth):
+            following: list[str] = []
+            for current in frontier:
+                self._issue(current)
+                outgoing = [
+                    link.key for link in self._links[current] if link.direction == "outgoing"
+                ]
+                in_scope = self._describe(sorted(set(outgoing), key=_key_number))
+                for target in outgoing:
+                    if target in in_scope and target not in seen:
+                        seen.add(target)
+                        found.append(target)
+                        following.append(target)
+            frontier = following
+        return found[:cap]
+
     def manifest_facts(self, release: str) -> tuple[IssueView | None, list[str]]:
         """Return the release manifest and the keys of its outgoing in-scope links."""
         ReleaseArgs(release=release)
@@ -539,6 +568,7 @@ class JiraToolbox:
         """Show one record with links and its first page of comments."""
         out = ToolOutput("")
         view = self._issue(args.issue_key)
+        out.opened.add(view.key)
         text, left = _cap(view.description, args.description_offset, TEXT_CAP)
         lines = [
             f"issue {self._row(view, out)} (tag: source id, kind, filed-under release, "
@@ -575,6 +605,7 @@ class JiraToolbox:
         """Page, filter or read one comment of a record."""
         out = ToolOutput("")
         view = self._issue(args.issue_key)
+        out.opened.add(view.key)
         comments = self._comments_of(view.key)
         if args.comment_id:
             match = next((c for c in comments if c.id == args.comment_id), None)
@@ -629,6 +660,7 @@ class JiraToolbox:
         lines = [f"target from {requirement.key}: {wanted}"]
         for raw_key in dict.fromkeys(args.evidence_keys):
             view = self._issue(raw_key)
+            out.opened.add(view.key)
             comments = sorted(self._comments_of(view.key), key=CommentView.sort_key)
             units = [TextUnit(None, None, None, None, view.description)] + [
                 TextUnit(c.id, c.recorded_at, c.actor, c.role, c.body) for c in comments

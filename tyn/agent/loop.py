@@ -15,7 +15,13 @@ from typing import Any, Final
 
 from tyn.agent.arguments import ArgumentError, parse_arguments
 from tyn.agent.budget import TokenEstimator
-from tyn.agent.llm import ChatModel, ChatResponse, ContextTooLargeError, ModelError
+from tyn.agent.llm import (
+    ChatModel,
+    ChatResponse,
+    ContextTooLargeError,
+    ModelError,
+    ToolCallGenerationError,
+)
 from tyn.agent.models import TokenUsage
 from tyn.agent.tools import JiraToolbox, Ledger, ToolInfrastructureError, ToolInputError
 from tyn.agent.trace import TraceRecorder
@@ -50,6 +56,8 @@ class SubmitCheck:
     error: str = ""
     fallback: Any = None
     notes: list[str] = field(default_factory=list)
+    force_resubmit: bool = True
+    pending_reads: tuple[str, ...] = ()
 
 
 @dataclass
@@ -114,14 +122,7 @@ class AgentLoop:
             if response is None:
                 return self._finish(state, failure=state.failure)
             if not response.tool_calls:
-                state.turns.append({"role": "assistant", "content": response.content or ""})
-                state.turns.append(
-                    {
-                        "role": "user",
-                        "content": f"Reply with a tool call: use the tools, or call "
-                        f"{submit_name} if you have enough evidence.",
-                    }
-                )
+                self._after_text_reply(response, state, submit_name)
                 continue
             state.turns.append(_assistant_message(response))
             for call in response.tool_calls:
@@ -133,6 +134,24 @@ class AgentLoop:
                     failure = self._handle_tool(scope, call, ledger, state)
                     if failure:
                         return self._finish(state, failure=failure)
+            if state.pending_reads and set(state.pending_reads) <= ledger.opened:
+                # Everything the rejection asked for has been read: decide now
+                # instead of wandering into unrelated searches.
+                state.pending_reads = ()
+                state.forced = True
+
+    def _after_text_reply(
+        self, response: ChatResponse, state: "_LoopState", submit_name: str
+    ) -> None:
+        # A plain-text reply after evidence was read usually means the model
+        # is ready to conclude, so the next call is forced to the submit tool.
+        state.turns.append({"role": "assistant", "content": response.content or ""})
+        if state.result.tool_calls:
+            state.forced = True
+            message = f"Call {submit_name} now with what the tools have shown."
+        else:
+            message = f"Reply with a tool call: use the tools, or call {submit_name}."
+        state.turns.append({"role": "user", "content": message})
 
     def _maybe_force(self, state: "_LoopState", submit_name: str) -> None:
         limits = self._limits
@@ -184,21 +203,22 @@ class AgentLoop:
         state: "_LoopState",
         submit_name: str,
     ) -> ChatResponse | None:
-        choice: str | dict[str, Any] = (
-            {"type": "function", "function": {"name": submit_name}} if state.forced else "auto"
-        )
-        cap = (
-            self._limits.submit_completion_tokens
-            if state.forced
-            else self._limits.turn_completion_tokens
-        )
-        for attempt in (1, 2):
+        pruned_after_413 = False
+        while True:
+            choice: str | dict[str, Any] = (
+                {"type": "function", "function": {"name": submit_name}} if state.forced else "auto"
+            )
+            cap = (
+                self._limits.submit_completion_tokens
+                if state.forced
+                else self._limits.turn_completion_tokens
+            )
             estimate = self._estimator.estimate(messages, tools)
             started = self._monotonic()
             try:
                 response = self._model.complete(messages, tools, choice, cap)
             except ContextTooLargeError:
-                if attempt == 2:
+                if pruned_after_413:
                     state.failure = "request still too large after pruning (413)"
                     return None
                 self._trace.event("prune_after_413", scope)
@@ -207,6 +227,24 @@ class AgentLoop:
                         self._prune(scope, state, index)
                 messages = [{k: v for k, v in m.items() if k != "pruned"} for m in messages[:2]]
                 messages += [{k: v for k, v in m.items() if k != "pruned"} for m in state.turns]
+                pruned_after_413 = True
+                continue
+            except ToolCallGenerationError as exc:
+                if state.forced:
+                    state.failure = f"model failure: {exc}"
+                    self._trace.event("model_failure", scope, error=str(exc))
+                    return None
+                # Repeated malformed tool calls: ask once for the verdict itself,
+                # a simpler output, before giving up on the requirement.
+                self._trace.event("generation_fallback", scope, error=str(exc))
+                state.forced = True
+                note = {
+                    "role": "user",
+                    "content": f"Your last reply could not be parsed. Call {submit_name} "
+                    "now with what the tools have shown.",
+                }
+                state.turns.append(note)
+                messages = [*messages, note]
                 continue
             except ModelError as exc:
                 state.failure = f"model failure: {exc}"
@@ -226,7 +264,6 @@ class AgentLoop:
                 remaining_tokens=response.headers.get("x-ratelimit-remaining-tokens"),
             )
             return response
-        return None  # pragma: no cover
 
     def _handle_submit(
         self,
@@ -255,7 +292,10 @@ class AgentLoop:
             if check.fallback is None:
                 state.failure = f"submission invalid: {check.error}"
             return True
-        state.forced = True
+        # Citation problems are fixed by resubmitting; unread linked records
+        # need tool calls first, so only the former forces the submit tool.
+        state.forced = check.force_resubmit
+        state.pending_reads = check.pending_reads
         state.turns.append(_tool_message(call_id, f"rejected: {check.error}"))
         return False
 
@@ -318,6 +358,7 @@ class _LoopState:
     tool_names: dict[str, str] = field(default_factory=dict)
     forced: bool = False
     repairs: int = 0
+    pending_reads: tuple[str, ...] = ()
     failure: str | None = None
     result: LoopResult = field(default_factory=LoopResult)
 

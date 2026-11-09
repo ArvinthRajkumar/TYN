@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Final
 
 from tyn.agent.app import AssessOptions, run_assessment, validate_scope_value
-from tyn.agent.runner import AssessmentOutcome
+from tyn.agent.checkpoint import CheckpointStore, now_iso
+from tyn.agent.runner import AssessmentOutcome, outcome_from_checkpoint
 from tyn.config import load_groq_settings, load_jira_settings, validate_project_key
 from tyn.errors import TynError
 from tyn.importer.dataset import load_dataset
@@ -22,6 +23,7 @@ from tyn.jira.client import JiraHttp, JiraReader, JiraWriter, build_http_client
 from tyn.logging_setup import configure_logging
 from tyn.paths import STATE_DIR, safe_child
 from tyn.redact import Redactor, redactor_from_settings
+from tyn.report.build import write_artifacts
 
 DEFAULT_DATASET: Final = Path("inputs/dataset.json")
 EXIT_OK: Final = 0
@@ -92,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=90,
         help="overall wall-clock limit in minutes (default 90)",
     )
+    report = commands.add_parser(
+        "report", parents=[common], help="re-render reports from a saved assessment checkpoint"
+    )
+    report.add_argument("--project", help="Jira project key (default JIRA_PROJECT_KEY)")
+    report.add_argument("--label", required=True, help="dataset scope label")
+    report.add_argument("--release", required=True, help="target release")
     return parser
 
 
@@ -214,8 +222,41 @@ def run_assess(args: argparse.Namespace) -> int:
     except TynError as exc:
         raise TynError(redactor.redact(str(exc))) from None
     print_assessment(outcome)
+    print_written(write_artifacts(outcome, redactor, generated_at=now_iso()))
     complete = not outcome.overall.partial and outcome.stopped_reason is None
     return EXIT_OK if complete else EXIT_FAILURES
+
+
+def run_report(args: argparse.Namespace) -> int:
+    """Execute the ``report`` command: no Jira or model calls are made."""
+    jira = load_jira_settings()
+    groq_settings = load_groq_settings()
+    redactor = redactor_from_settings(jira, groq_settings)
+    configure_logging(args.log_level, redactor)
+    try:
+        project = validate_project_key(args.project or jira.jira_project_key)
+    except ValueError as exc:
+        raise TynError(f"--project {exc}") from None
+    store = CheckpointStore(
+        project,
+        validate_scope_value("label", args.label),
+        validate_scope_value("release", args.release),
+    )
+    checkpoint = store.load()
+    if checkpoint is None:
+        raise TynError(f"no saved assessment at {store.path.as_posix()}; run assess first")
+    outcome = outcome_from_checkpoint(checkpoint)
+    print_assessment(outcome)
+    print_written(write_artifacts(outcome, redactor, generated_at=now_iso()))
+    complete = not outcome.overall.partial and outcome.stopped_reason is None
+    return EXIT_OK if complete else EXIT_FAILURES
+
+
+def print_written(paths: list[Path]) -> None:
+    """List the artifacts that were written."""
+    print("Artifacts (redacted and verified):")
+    for path in paths:
+        print(f"  {path.relative_to(Path.cwd().resolve()).as_posix()}")
 
 
 def print_assessment(outcome: AssessmentOutcome) -> None:
@@ -247,6 +288,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_import(args)
         if args.command == "assess":
             return run_assess(args)
+        if args.command == "report":
+            return run_report(args)
     except KeyboardInterrupt:
         print("interrupted; progress is saved, re-run the same command to resume", file=sys.stderr)
         return EXIT_INTERRUPTED

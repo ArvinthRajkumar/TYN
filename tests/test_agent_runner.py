@@ -114,8 +114,11 @@ def test_discovery_falls_back_to_manifest_links_when_the_model_fails(world: Agen
 
 def _requirement_steps(world: AgentWorld, source: str, evidence: str, decision: str) -> list[Any]:
     comment = str(world.fake.comments[world.key(evidence)][0]["id"])
+    # RQ-1's evidence links onward to a dependency that must be opened too.
+    extra = [call("get_issue", {"issue_key": world.key("EV-11")})] if source == "RQ-1" else []
     return [
         call("get_issue", {"issue_key": world.key(evidence)}),
+        *extra,
         call(
             "submit_verdict",
             {
@@ -188,7 +191,7 @@ def test_full_run_computes_the_overall_decision_in_code(world: AgentWorld, tmp_p
         world.key("RQ-2"),
         world.key("RQ-3"),
     }
-    assert saved["sessions"][0]["model_calls"] == 9
+    assert saved["sessions"][0]["model_calls"] == 10
 
 
 def test_budget_exhaustion_checkpoints_and_resume_skips_completed(

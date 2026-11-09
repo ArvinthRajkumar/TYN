@@ -1,0 +1,217 @@
+{
+  "release": "R2.4",
+  "models": [
+    "openai/gpt-oss-120b"
+  ],
+  "wall_time_seconds": 1029.22,
+  "sessions": [
+    {
+      "started_at": "2026-11-09T14:41:22+00:00",
+      "seconds": 1029.22,
+      "model_calls": 49,
+      "model_retries": 1,
+      "rate_limit_waits": 0,
+      "rate_limit_wait_seconds": 0.0,
+      "pacer_sleeps": 35,
+      "pacer_sleep_seconds": 954.53,
+      "jira_calls": 68,
+      "usage": {
+        "prompt": 94574,
+        "completion": 5521,
+        "reasoning": 1695,
+        "cached": 18688
+      },
+      "stopped_reason": null
+    }
+  ],
+  "totals": {
+    "model_calls": 49,
+    "tool_calls": 36,
+    "jira_calls": 68,
+    "prompt_tokens": 94574,
+    "completion_tokens": 5521,
+    "reasoning_tokens": 1695,
+    "cached_tokens": 18688,
+    "model_retries": 1,
+    "rate_limit_waits": 0,
+    "rate_limit_wait_seconds": 0.0,
+    "pacer_sleeps": 35,
+    "pacer_sleep_seconds": 954.53,
+    "total_tokens": 100095
+  },
+  "context": {
+    "requests": 49,
+    "max_prompt_tokens_per_request": 2948,
+    "mean_prompt_tokens_per_request": 1930,
+    "pruned_tool_results": 0
+  },
+  "discovery": {
+    "seconds": 3.83,
+    "model_calls": 3,
+    "tool_calls": 2,
+    "usage": {
+      "prompt": 3853,
+      "completion": 295,
+      "reasoning": 29,
+      "cached": 0
+    }
+  },
+  "requirements": [
+    {
+      "issue_key": "SCRUM-10",
+      "source_id": "REQ-01",
+      "decision": "PASS",
+      "status": "completed",
+      "seconds": 60.78,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 7615,
+      "completion_tokens": 440,
+      "reasoning_tokens": 164,
+      "cached_tokens": 256
+    },
+    {
+      "issue_key": "SCRUM-14",
+      "source_id": "REQ-02",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "seconds": 62.89,
+      "model_calls": 3,
+      "tool_calls": 2,
+      "prompt_tokens": 5346,
+      "completion_tokens": 497,
+      "reasoning_tokens": 138,
+      "cached_tokens": 2560
+    },
+    {
+      "issue_key": "SCRUM-13",
+      "source_id": "REQ-03",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "seconds": 113.7,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 7964,
+      "completion_tokens": 462,
+      "reasoning_tokens": 210,
+      "cached_tokens": 256
+    },
+    {
+      "issue_key": "SCRUM-7",
+      "source_id": "REQ-04",
+      "decision": "PASS",
+      "status": "completed",
+      "seconds": 119.86,
+      "model_calls": 5,
+      "tool_calls": 4,
+      "prompt_tokens": 11224,
+      "completion_tokens": 444,
+      "reasoning_tokens": 132,
+      "cached_tokens": 1280
+    },
+    {
+      "issue_key": "SCRUM-16",
+      "source_id": "REQ-05",
+      "decision": "FAIL",
+      "status": "completed",
+      "seconds": 59.77,
+      "model_calls": 3,
+      "tool_calls": 2,
+      "prompt_tokens": 5465,
+      "completion_tokens": 501,
+      "reasoning_tokens": 106,
+      "cached_tokens": 1024
+    },
+    {
+      "issue_key": "SCRUM-9",
+      "source_id": "REQ-06",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "seconds": 65.48,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 7846,
+      "completion_tokens": 403,
+      "reasoning_tokens": 135,
+      "cached_tokens": 0
+    },
+    {
+      "issue_key": "SCRUM-15",
+      "source_id": "REQ-07",
+      "decision": "PASS",
+      "status": "completed",
+      "seconds": 61.09,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 8044,
+      "completion_tokens": 440,
+      "reasoning_tokens": 149,
+      "cached_tokens": 1024
+    },
+    {
+      "issue_key": "SCRUM-6",
+      "source_id": "REQ-08",
+      "decision": "FAIL",
+      "status": "completed",
+      "seconds": 177.16,
+      "model_calls": 5,
+      "tool_calls": 4,
+      "prompt_tokens": 10626,
+      "completion_tokens": 455,
+      "reasoning_tokens": 119,
+      "cached_tokens": 3840
+    },
+    {
+      "issue_key": "SCRUM-11",
+      "source_id": "REQ-09",
+      "decision": "FAIL",
+      "status": "completed",
+      "seconds": 63.8,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 7868,
+      "completion_tokens": 507,
+      "reasoning_tokens": 217,
+      "cached_tokens": 4096
+    },
+    {
+      "issue_key": "SCRUM-8",
+      "source_id": "REQ-10",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "seconds": 59.92,
+      "model_calls": 3,
+      "tool_calls": 2,
+      "prompt_tokens": 5359,
+      "completion_tokens": 385,
+      "reasoning_tokens": 152,
+      "cached_tokens": 3072
+    },
+    {
+      "issue_key": "SCRUM-12",
+      "source_id": "REQ-11",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "seconds": 59.23,
+      "model_calls": 3,
+      "tool_calls": 2,
+      "prompt_tokens": 5312,
+      "completion_tokens": 350,
+      "reasoning_tokens": 53,
+      "cached_tokens": 1024
+    },
+    {
+      "issue_key": "SCRUM-17",
+      "source_id": "REQ-12",
+      "decision": "FAIL",
+      "status": "completed",
+      "seconds": 116.25,
+      "model_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 8052,
+      "completion_tokens": 342,
+      "reasoning_tokens": 91,
+      "cached_tokens": 256
+    }
+  ]
+}

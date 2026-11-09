@@ -236,3 +236,28 @@ def test_waits_are_reported_separately_from_latency(tmp_path: Path) -> None:
     resilient, _ = _resilient(model, tmp_path)
     response = resilient.complete(MESSAGES, [], "auto", 100)
     assert response.waited_seconds >= 5.0
+
+
+def test_cached_prompt_tokens_do_not_count_toward_limits(tmp_path: Path) -> None:
+    path = tmp_path / "usage.json"
+    budget = DailyBudget(path, "m", 1_000, today=lambda: date(2026, 1, 5))
+    budget.record(TokenUsage(prompt=600, completion=100, cached=400))
+    assert budget.used_today() == 300
+    saved = json.loads(path.read_text(encoding="utf-8"))["days"]["2026-01-05"]["m"]
+    assert (saved["total"], saved["cached"], saved["counted"]) == (700, 400, 300)
+
+
+def test_legacy_usage_entries_count_in_full(tmp_path: Path) -> None:
+    path = tmp_path / "usage.json"
+    path.write_text(
+        json.dumps({"version": 1, "days": {"2026-01-05": {"m": {"prompt": 900, "total": 950}}}}),
+        encoding="utf-8",
+    )
+    budget = DailyBudget(path, "m", 1_000, today=lambda: date(2026, 1, 5))
+    assert budget.used_today() == 950
+
+
+def test_exhausted_generation_errors_keep_their_type(tmp_path: Path) -> None:
+    resilient, _ = _resilient(FlakyModel([ToolCallGenerationError("bad")] * 4), tmp_path)
+    with pytest.raises(ToolCallGenerationError, match="after 4 attempts"):
+        resilient.complete(MESSAGES, [], "auto", 100)

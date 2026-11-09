@@ -25,7 +25,7 @@ from tyn.agent.prompts import (
     VERDICT_SUBMIT,
     investigation_seed,
 )
-from tyn.agent.tools import SCHEMAS, Ledger
+from tyn.agent.tools import SCHEMAS, JiraToolbox, Ledger, ToolInputError
 
 INVESTIGATION_TOOLS: Final = (
     "get_issue",
@@ -35,6 +35,9 @@ INVESTIGATION_TOOLS: Final = (
     "check_evidence_scope",
 )
 DOWNGRADE_NOTE: Final = " [Downgraded to INSUFFICIENT_EVIDENCE: citations failed validation.]"
+UNREAD_NOTE: Final = (
+    " [Downgraded to INSUFFICIENT_EVIDENCE: linked records were not read before deciding.]"
+)
 
 
 def investigation_tools() -> list[dict[str, Any]]:
@@ -73,8 +76,10 @@ def normalise_verdict_args(args: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def check_verdict(args: dict[str, Any], ledger: Ledger) -> SubmitCheck:
-    """Validate shape and citations; provide a downgraded fallback."""
+def check_verdict(
+    args: dict[str, Any], ledger: Ledger, required_reads: tuple[str, ...] = ()
+) -> SubmitCheck:
+    """Validate shape, citations and that linked records were opened."""
     try:
         verdict = Verdict.model_validate(normalise_verdict_args(args))
     except ValidationError as exc:
@@ -92,7 +97,7 @@ def check_verdict(args: dict[str, Any], ledger: Ledger) -> SubmitCheck:
     if verdict.decision is not Decision.INSUFFICIENT_EVIDENCE and not verdict.supporting_evidence:
         problems.append(f"{verdict.decision.value} needs at least one supporting citation")
     if not problems:
-        return SubmitCheck(ok=True, value=verdict)
+        return _check_reads(verdict, ledger, required_reads)
     fallback = Verdict(
         decision=Decision.INSUFFICIENT_EVIDENCE,
         explanation=(verdict.explanation + DOWNGRADE_NOTE)[:2000],
@@ -110,6 +115,38 @@ def check_verdict(args: dict[str, Any], ledger: Ledger) -> SubmitCheck:
     )
 
 
+def _check_reads(verdict: Verdict, ledger: Ledger, required: tuple[str, ...]) -> SubmitCheck:
+    """Reject a first submission that skipped linked records.
+
+    If the model still has not opened them after the repair round, a PASS is
+    downgraded (an unread dependency could hold a failure); FAIL and
+    INSUFFICIENT_EVIDENCE stand, with the gap recorded.
+    """
+    unread = [key for key in required if key not in ledger.opened]
+    if not unread:
+        return SubmitCheck(ok=True, value=verdict)
+    gap = f"linked records not opened: {', '.join(unread)}"
+    fallback = verdict
+    if verdict.decision is Decision.PASS:
+        fallback = verdict.model_copy(
+            update={
+                "decision": Decision.INSUFFICIENT_EVIDENCE,
+                "explanation": (verdict.explanation + UNREAD_NOTE)[:2000],
+                "outstanding": [*verdict.outstanding, f"review {gap}"][:8],
+            }
+        )
+    return SubmitCheck(
+        ok=False,
+        error="before deciding, open the records linked from the requirement and its "
+        f"evidence that you have not read: {', '.join(unread)} (use get_issue), then call "
+        "submit_verdict again",
+        fallback=fallback,
+        notes=[gap],
+        force_resubmit=False,
+        pending_reads=tuple(unread),
+    )
+
+
 def _valid(refs: list[EvidenceRef], ledger: Ledger, problems: list[str]) -> list[EvidenceRef]:
     kept: list[EvidenceRef] = []
     for ref in refs:
@@ -124,8 +161,9 @@ def _valid(refs: list[EvidenceRef], ledger: Ledger, problems: list[str]) -> list
 class Investigator:
     """Investigate requirements one at a time, each in a fresh context."""
 
-    def __init__(self, loop: AgentLoop, *, release: str) -> None:
+    def __init__(self, loop: AgentLoop, toolbox: JiraToolbox, *, release: str) -> None:
         self._loop = loop
+        self._toolbox = toolbox
         self._release = release
 
     def investigate(
@@ -154,16 +192,29 @@ class Investigator:
                 notes=notes,
             )
 
+        required: list[tuple[str, ...]] = []
+
+        def validate(args: dict[str, Any], seen: Ledger) -> SubmitCheck:
+            if not required:
+                required.append(self._required_reads(target.issue_key))
+            return check_verdict(args, seen, required[0])
+
         outcome = self._loop.run(
             scope=target.issue_key,
             system=INVESTIGATION_SYSTEM,
             seed=seed,
             tools=investigation_tools(),
             submit_name="submit_verdict",
-            validate=check_verdict,
+            validate=validate,
             ledger=ledger,
         )
         return _result(target, outcome, ledger)
+
+    def _required_reads(self, key: str) -> tuple[str, ...]:
+        try:
+            return tuple(self._toolbox.linked_closure(key))
+        except ToolInputError:
+            return ()
 
 
 def _result(target: RequirementTarget, outcome: LoopResult, ledger: Ledger) -> RequirementResult:

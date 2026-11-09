@@ -76,6 +76,15 @@ class TokenUsage(_Model):
         """Prompt plus completion tokens."""
         return self.prompt + self.completion
 
+    @property
+    def rate_limited(self) -> int:
+        """Tokens that count toward provider rate limits.
+
+        Groq documents that cached prompt tokens do not count toward rate
+        limits, so they are excluded here.
+        """
+        return max(0, self.total - self.cached)
+
 
 class RequirementTarget(_Model):
     """A requirement the discovery stage selected."""
