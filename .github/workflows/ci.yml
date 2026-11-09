@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only token; the workflow needs no secrets.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out (full history for the secret scan)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12.10"
+
+      - name: Install pinned dependencies (hash-checked)
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+
+      - name: Hooks (detect-secrets, ruff, mypy, no em dashes)
+        run: python -m pre_commit run --all-files --show-diff-on-failure
+
+      - name: Tests with coverage
+        run: python -m pytest --cov --cov-report=term-missing
+
+      - name: Dependency audit
+        run: python -m pip_audit --disable-pip --require-hashes -r requirements.txt -r requirements-dev.txt --progress-spinner off
+
+      - name: Secret scan of full git history
+        run: python -m scripts.scan_secrets history
