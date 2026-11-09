@@ -11,7 +11,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-from tyn.config import load_jira_settings, validate_project_key
+from tyn.agent.app import AssessOptions, run_assessment, validate_scope_value
+from tyn.agent.runner import AssessmentOutcome
+from tyn.config import load_groq_settings, load_jira_settings, validate_project_key
 from tyn.errors import TynError
 from tyn.importer.dataset import load_dataset
 from tyn.importer.runner import Importer, ImportReport, ProgressEvent, StageCounts
@@ -60,6 +62,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="import only the first N records (manifest and requirements come first)",
     )
     importer.add_argument("--issue-type", default="Task", help="issue type name (default Task)")
+    assess = commands.add_parser(
+        "assess", parents=[common], help="assess release readiness from Jira evidence"
+    )
+    assess.add_argument("--project", help="Jira project key (default JIRA_PROJECT_KEY)")
+    assess.add_argument("--label", required=True, help="dataset scope label on imported issues")
+    assess.add_argument("--release", required=True, help="target release, e.g. R2.4")
+    assess.add_argument(
+        "--resume", action="store_true", help="continue a saved run, skipping finished requirements"
+    )
+    assess.add_argument(
+        "--only", help="investigate one requirement (Jira key or source id) for a trial run"
+    )
+    assess.add_argument(
+        "--input-budget",
+        type=_positive_int,
+        default=5_000,
+        help="estimated input tokens per model request (default 5000)",
+    )
+    assess.add_argument(
+        "--max-model-calls",
+        type=_positive_int,
+        default=10,
+        help="model calls per requirement before a verdict is forced (default 10)",
+    )
+    assess.add_argument(
+        "--time-limit-min",
+        type=_positive_int,
+        default=90,
+        help="overall wall-clock limit in minutes (default 90)",
+    )
     return parser
 
 
@@ -157,12 +189,64 @@ def run_import(args: argparse.Namespace) -> int:
     return EXIT_FAILURES if report.has_failures else EXIT_OK
 
 
+def run_assess(args: argparse.Namespace) -> int:
+    """Execute the ``assess`` command."""
+    jira = load_jira_settings()
+    groq_settings = load_groq_settings()
+    redactor = redactor_from_settings(jira, groq_settings)
+    configure_logging(args.log_level, redactor)
+    try:
+        project = validate_project_key(args.project or jira.jira_project_key)
+    except ValueError as exc:
+        raise TynError(f"--project {exc}") from None
+    options = AssessOptions(
+        project=project,
+        label=validate_scope_value("label", args.label),
+        release=validate_scope_value("release", args.release),
+        resume=args.resume,
+        only=args.only,
+        input_budget=args.input_budget,
+        max_model_calls=args.max_model_calls,
+        time_limit_minutes=float(args.time_limit_min),
+    )
+    try:
+        outcome = run_assessment(jira, groq_settings, options)
+    except TynError as exc:
+        raise TynError(redactor.redact(str(exc))) from None
+    print_assessment(outcome)
+    complete = not outcome.overall.partial and outcome.stopped_reason is None
+    return EXIT_OK if complete else EXIT_FAILURES
+
+
+def print_assessment(outcome: AssessmentOutcome) -> None:
+    """Print a short console summary of an assessment."""
+    print(f"Overall decision: {outcome.overall.decision.value}")
+    for reason in outcome.overall.reasons:
+        print(f"  {reason}")
+    for result in outcome.assessed:
+        target = result.target
+        flag = "mandatory" if target.mandatory else "optional"
+        status = "" if result.status == "completed" else f" ({result.status}: {result.failure})"
+        print(
+            f"  {target.issue_key:<10} {target.source_id or '':<10} {flag:<9} "
+            f"{result.verdict.decision.value}{status}"
+        )
+    for target in outcome.unassessed:
+        print(f"  {target.issue_key:<10} {target.source_id or '':<10} not assessed")
+    if outcome.stopped_reason:
+        print(f"Stopped early: {outcome.stopped_reason}")
+    if outcome.overall.partial or outcome.stopped_reason:
+        print("This is a partial assessment. Re-run with --resume to complete it.")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse arguments, run the command and map errors to exit codes."""
     args = build_parser().parse_args(argv)
     try:
         if args.command == "import":
             return run_import(args)
+        if args.command == "assess":
+            return run_assess(args)
     except KeyboardInterrupt:
         print("interrupted; progress is saved, re-run the same command to resume", file=sys.stderr)
         return EXIT_INTERRUPTED
