@@ -1,0 +1,75 @@
+[project]
+name = "tyn"
+version = "0.1.0"
+description = "Tool-using agent that decides release readiness from evidence stored in Jira"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+
+# Runtime and dev dependencies are pinned with hashes in requirements.txt and
+# requirements-dev.txt (compiled by pip-tools from the matching .in files).
+# The package runs from the repository root with `python -m tyn`; it is not
+# installed, which avoids an unpinned build backend download.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = [".", "tests"]
+extend-exclude = ["inputs", "state", "reports"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "N", "S", "C4", "SIM", "RUF", "PT", "T20",
+    "D", "BLE", "TRY", "PTH", "RET", "ARG", "ERA",
+]
+ignore = [
+    "D105",   # magic methods document themselves
+    "D107",   # __init__ is documented on the class
+    "TRY003", # explicit messages on custom exceptions are intended
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Fake handlers share one signature, RNGs are seeded on purpose, and fake
+# helper methods are self-describing.
+"tests/**" = ["S101", "D102", "D103", "ARG001", "ARG002", "S105", "S106", "S311", "TRY301"]
+"tyn/cli.py" = ["T201"]
+"scripts/**" = ["T201", "S603", "S607"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+explicit_package_bases = true
+exclude = ["^inputs/", "^state/", "^reports/", "^\\.venv/"]
+
+[[tool.mypy.overrides]]
+module = ["detect_secrets.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["tyn"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
