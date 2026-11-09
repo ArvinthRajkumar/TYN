@@ -255,3 +255,9 @@ def test_legacy_usage_entries_count_in_full(tmp_path: Path) -> None:
     )
     budget = DailyBudget(path, "m", 1_000, today=lambda: date(2026, 1, 5))
     assert budget.used_today() == 950
+
+
+def test_exhausted_generation_errors_keep_their_type(tmp_path: Path) -> None:
+    resilient, _ = _resilient(FlakyModel([ToolCallGenerationError("bad")] * 4), tmp_path)
+    with pytest.raises(ToolCallGenerationError, match="after 4 attempts"):
+        resilient.complete(MESSAGES, [], "auto", 100)

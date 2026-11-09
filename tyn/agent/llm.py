@@ -275,9 +275,10 @@ class ResilientModel:
             self.stats.calls += 1
             self.stats.usage = self.stats.usage.add(response.usage)
             return replace(response, waited_seconds=round(self._waited_total() - waited_before, 3))
-        raise ModelError(
-            f"model request failed after {self._policy.max_attempts} attempts: {last_error}"
-        )
+        message = f"model request failed after {self._policy.max_attempts} attempts: {last_error}"
+        if isinstance(last_error, ToolCallGenerationError):
+            raise ToolCallGenerationError(message)
+        raise ModelError(message)
 
     def _waited_total(self) -> float:
         return (

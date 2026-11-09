@@ -9,7 +9,7 @@ import pytest
 from tests.agent_support import AgentWorld, ScriptedModel, build_world, call, make_loop
 from tests.fakes import Fault
 from tyn.agent.investigate import DOWNGRADE_NOTE, UNREAD_NOTE, Investigator, check_verdict
-from tyn.agent.llm import ChatResponse, ContextTooLargeError, ModelError
+from tyn.agent.llm import ChatResponse, ContextTooLargeError, ModelError, ToolCallGenerationError
 from tyn.agent.loop import PRUNED_STUB, LoopLimits
 from tyn.agent.models import Decision, RequirementResult, RequirementTarget, TokenUsage
 from tyn.agent.prompts import INVESTIGATION_SYSTEM
@@ -347,3 +347,49 @@ def test_pass_that_never_reads_linked_records_is_downgraded(world: AgentWorld) -
     assert result.verdict.decision is Decision.INSUFFICIENT_EVIDENCE
     assert result.verdict.explanation.endswith(UNREAD_NOTE)
     assert any(world.key("EV-11") in note for note in result.validation_notes)
+
+
+def test_verdict_is_forced_once_requested_reads_are_done(world: AgentWorld) -> None:
+    passed = comment_id(world, "EV-10", "10 of 10")
+    support = [{"issue_key": world.key("EV-10"), "comment_id": passed, "note": "x"}]
+    _, model, _ = investigate(
+        world,
+        [
+            call("get_issue", {"issue_key": world.key("EV-10")}),
+            verdict("FAIL", support),
+            call("get_issue", {"issue_key": world.key("EV-11")}),
+            verdict("FAIL", support),
+        ],
+    )
+    assert model.requests[3]["tool_choice"]["function"]["name"] == "submit_verdict"
+
+
+def test_text_reply_after_reading_forces_the_verdict(world: AgentWorld) -> None:
+    text_only = ChatResponse(content="It fails.", tool_calls=[], usage=TokenUsage())
+    result, model, _ = investigate(
+        world, [*read_links(world), text_only, verdict("INSUFFICIENT_EVIDENCE", [])]
+    )
+    assert model.requests[3]["tool_choice"]["function"]["name"] == "submit_verdict"
+    assert model.requests[3]["messages"][-1]["content"].startswith("Call submit_verdict now")
+    assert result.status == "completed"
+
+
+def test_repeated_malformed_tool_calls_fall_back_to_a_forced_verdict(world: AgentWorld) -> None:
+    def malformed(*_: Any) -> ChatResponse:
+        raise ToolCallGenerationError("tool_use_failed")
+
+    result, model, trace = investigate(
+        world, [*read_links(world), malformed, verdict("INSUFFICIENT_EVIDENCE", [])]
+    )
+    assert result.status == "completed"
+    assert model.requests[3]["tool_choice"]["function"]["name"] == "submit_verdict"
+    assert "generation_fallback" in [event["kind"] for event in trace.events]
+
+
+def test_malformed_forced_verdict_fails_the_requirement(world: AgentWorld) -> None:
+    def malformed(*_: Any) -> ChatResponse:
+        raise ToolCallGenerationError("tool_use_failed")
+
+    result, _, _ = investigate(world, [*read_links(world), malformed, malformed])
+    assert result.status == "failed"
+    assert result.verdict.decision is Decision.INSUFFICIENT_EVIDENCE

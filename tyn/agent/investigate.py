@@ -143,6 +143,7 @@ def _check_reads(verdict: Verdict, ledger: Ledger, required: tuple[str, ...]) ->
         fallback=fallback,
         notes=[gap],
         force_resubmit=False,
+        pending_reads=tuple(unread),
     )
 
 
