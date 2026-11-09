@@ -1,0 +1,467 @@
+{
+  "report_version": 1,
+  "generated_at": "2026-11-09T15:01:08+00:00",
+  "project": "SCRUM",
+  "scope_label": "tyn-release-assessment-v2",
+  "release": "R2.4",
+  "models": [
+    "openai/gpt-oss-120b"
+  ],
+  "complete": true,
+  "stopped_reason": null,
+  "overall": {
+    "decision": "BLOCKED",
+    "reasons": [
+      "mandatory requirements failed: SCRUM-16, SCRUM-6, SCRUM-11, SCRUM-17"
+    ],
+    "computed_by": "code (BLOCKED if any mandatory FAIL; NEEDS_REVIEW if any mandatory INSUFFICIENT_EVIDENCE or unassessed; READY only if every mandatory PASS)"
+  },
+  "manifest_key": "SCRUM-5",
+  "discovery_notes": [],
+  "requirements": [
+    {
+      "issue_key": "SCRUM-10",
+      "source_id": "REQ-01",
+      "summary": "Automated regression tests",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "PASS",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA evidence c11598 in SCRUM-324 records a regression run on the target release R2.4, commit b7a91f2, service atlas-assistant, environment production, with all 146 mandatory cases passing, satisfying the acceptance criterion.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-324",
+          "comment_id": "11598",
+          "note": "Regression run on target build with all mandatory cases passing."
+        }
+      ],
+      "rejected_evidence": [],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 60.78,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 7615,
+        "completion_tokens": 440,
+        "reasoning_tokens": 164
+      }
+    },
+    {
+      "issue_key": "SCRUM-14",
+      "source_id": "REQ-02",
+      "summary": "Customer document isolation",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "failure": null,
+      "explanation": "No QA evidence confirming isolation cases for the target release R2.4, commit b7a91f2, production environment, and prompt p7 was found. The only QA comment references release R2.3 with a different commit, so it does not satisfy the requirement. No other applicable evidence exists.",
+      "supporting_evidence": [],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-227",
+          "comment_id": "11113",
+          "note": "QA verification refers to release R2.3, commit 42d09ce - wrong scope."
+        },
+        {
+          "issue_key": "SCRUM-227",
+          "comment_id": "11110",
+          "note": "Developer claim, not proof."
+        },
+        {
+          "issue_key": "SCRUM-227",
+          "comment_id": "11111",
+          "note": "Engineer discussion, no verification."
+        },
+        {
+          "issue_key": "SCRUM-227",
+          "comment_id": "11112",
+          "note": "Project coordinator tracking, not evidence."
+        }
+      ],
+      "outstanding": [
+        "QA verification for isolation cases on release R2.4 (commit b7a91f2) is needed."
+      ],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 62.89,
+        "model_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 5346,
+        "completion_tokens": 497,
+        "reasoning_tokens": 138
+      }
+    },
+    {
+      "issue_key": "SCRUM-13",
+      "source_id": "REQ-03",
+      "summary": "Answer quality for deployed prompt",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "failure": null,
+      "explanation": "No evidence matches the required prompt p7 in production. SCRUM-224 reports staging environment; SCRUM-43 uses prompt bundle p6, not p7. Neither provides a qualifying 90%+ result for p7, so the requirement lacks sufficient evidence.",
+      "supporting_evidence": [],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-224",
+          "comment_id": null,
+          "note": "Staging environment, wrong commit and prompt scope."
+        },
+        {
+          "issue_key": "SCRUM-43",
+          "comment_id": null,
+          "note": "Prompt bundle p6 used, not the required p7."
+        }
+      ],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 113.7,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 7964,
+        "completion_tokens": 462,
+        "reasoning_tokens": 210
+      }
+    },
+    {
+      "issue_key": "SCRUM-7",
+      "source_id": "REQ-04",
+      "summary": "Response latency",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "PASS",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA evidence in SCRUM-161 (comment c10782) shows a production-equivalent run for release R2.4, commit b7a91f2, service atlas-assistant, environment production, prompt p7 with p95 latency 1.40 seconds, which satisfies the ≤2.0 seconds requirement.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-161",
+          "comment_id": "10782",
+          "note": "Measured p95 latency 1.40 seconds for target build, meeting the acceptance criterion."
+        }
+      ],
+      "rejected_evidence": [],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 119.86,
+        "model_calls": 5,
+        "tool_calls": 4,
+        "prompt_tokens": 11224,
+        "completion_tokens": 444,
+        "reasoning_tokens": 132
+      }
+    },
+    {
+      "issue_key": "SCRUM-16",
+      "source_id": "REQ-05",
+      "summary": "Model usage cost",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "FAIL",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA evidence (c11146) for SCRUM-234 shows mean model cost USD 0.018, exceeding the allowed USD 0.012 for the target release R2.4, commit b7a91f2, service atlas-assistant, production, prompt p7. This applicable failure meets the acceptance criterion, so the requirement fails.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-234",
+          "comment_id": "11146",
+          "note": "QA Lead reports mean cost USD 0.018, exceeding limit"
+        }
+      ],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-234",
+          "comment_id": "11145",
+          "note": "Developer claim of future update, not evidence"
+        },
+        {
+          "issue_key": "SCRUM-234",
+          "comment_id": "11149",
+          "note": "Project coordinator tracking note, not evidence"
+        },
+        {
+          "issue_key": "SCRUM-234",
+          "comment_id": "11148",
+          "note": "Reminder to keep results, not evidence"
+        }
+      ],
+      "outstanding": [],
+      "observations": [
+        {
+          "issue_key": "SCRUM-234",
+          "comment_id": "11147",
+          "summary": "Developer note attempting to waive the criterion",
+          "found_by": "model"
+        }
+      ],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 59.77,
+        "model_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 5465,
+        "completion_tokens": 501,
+        "reasoning_tokens": 106
+      }
+    },
+    {
+      "issue_key": "SCRUM-9",
+      "source_id": "REQ-06",
+      "summary": "Production security approval",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "failure": null,
+      "explanation": "The only security approval comment (SCRUM-190 c10927) is from Security Owner Asha Rao but explicitly states the approval scope is staging, not production. Production approval is required. No other evidence provides a production security sign‑off.",
+      "supporting_evidence": [],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-131",
+          "comment_id": "10633",
+          "note": "Engineering manager approval, not security owner and not production scope."
+        },
+        {
+          "issue_key": "SCRUM-190",
+          "comment_id": "10927",
+          "note": "Security Owner approval limited to staging scope, not production."
+        }
+      ],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 65.48,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 7846,
+        "completion_tokens": 403,
+        "reasoning_tokens": 135
+      }
+    },
+    {
+      "issue_key": "SCRUM-15",
+      "source_id": "REQ-07",
+      "summary": "Sensitive log redaction",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "PASS",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA retest (comment c12042) on release R2.4, commit b7a91f2, service atlas-assistant, production confirms 28/28 redaction cases pass, superseding earlier FAIL. Meets acceptance criterion.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-401",
+          "comment_id": "12042",
+          "note": "QA Lead retest confirms all redaction cases pass on target build"
+        }
+      ],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-401",
+          "comment_id": "12041",
+          "note": "Earlier FAIL result superseded by later retest"
+        }
+      ],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 61.09,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 8044,
+        "completion_tokens": 440,
+        "reasoning_tokens": 149
+      }
+    },
+    {
+      "issue_key": "SCRUM-6",
+      "source_id": "REQ-08",
+      "summary": "Human handoff delivery",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "FAIL",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA test (c10423) for queue adapter verification shows 0 of 12 escalated conversations reached the support queue; defect HND-DEF-4 is open, indicating the handoff does not reach support queue, violating the acceptance criterion.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-89",
+          "comment_id": "10423",
+          "note": "QA Lead reports open defect HND-DEF-4; handoff delivery test failed for target release R2.4, commit b7a91f2, service atlas-assistant, production."
+        }
+      ],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-349",
+          "comment_id": null,
+          "note": "Developer comments and implementation claim lack QA verification and do not provide evidence of successful handoff."
+        }
+      ],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 177.16,
+        "model_calls": 5,
+        "tool_calls": 4,
+        "prompt_tokens": 10626,
+        "completion_tokens": 455,
+        "reasoning_tokens": 119
+      }
+    },
+    {
+      "issue_key": "SCRUM-11",
+      "source_id": "REQ-09",
+      "summary": "Rollback rehearsal",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "FAIL",
+      "status": "completed",
+      "failure": null,
+      "explanation": "Rollback rehearsal evidence shows a failure: SCRUM-184 comment c10896 reports lost session records and a FAILED rehearsal for release R2.4, commit b7a91f2, service atlas-assistant in production. This applicable failure blocks the requirement despite a successful rehearsal in SCRUM-117.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-184",
+          "comment_id": "10896",
+          "note": "Rollback rehearsal FAILED - lost 214 session records."
+        },
+        {
+          "issue_key": "SCRUM-117",
+          "comment_id": "10563",
+          "note": "Rollback rehearsal succeeded - restored in 6 minutes, no data loss."
+        }
+      ],
+      "rejected_evidence": [],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 63.8,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 7868,
+        "completion_tokens": 507,
+        "reasoning_tokens": 217
+      }
+    },
+    {
+      "issue_key": "SCRUM-8",
+      "source_id": "REQ-10",
+      "summary": "Document parsing completeness",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "failure": null,
+      "explanation": "The only QA evidence (c10109) confirms 60/60 mandatory parsing cases pass, matching release, commit, service, and environment, but does not specify the required prompt p7. Without proof that the test was run with prompt p7, the evidence does not fully satisfy the acceptance criterion.",
+      "supporting_evidence": [],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-26",
+          "comment_id": "10108",
+          "note": "Only 59/60 cases passed; also missing prompt information."
+        }
+      ],
+      "outstanding": [
+        "Evidence confirming the test was executed with prompt p7 is needed."
+      ],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 59.92,
+        "model_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 5359,
+        "completion_tokens": 385,
+        "reasoning_tokens": 152
+      }
+    },
+    {
+      "issue_key": "SCRUM-12",
+      "source_id": "REQ-11",
+      "summary": "Accessible keyboard handoff",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "INSUFFICIENT_EVIDENCE",
+      "status": "completed",
+      "failure": null,
+      "explanation": "No evidence provides applicable QA verification for keyboard navigation and focus handling on release R2.4, commit b7a91f2, production, service atlas-assistant, prompt p7. The only linked evidence either mismatches release/commit or lacks scope details, so the acceptance criterion cannot be confirmed.",
+      "supporting_evidence": [],
+      "rejected_evidence": [
+        {
+          "issue_key": "SCRUM-114",
+          "comment_id": null,
+          "note": "Scope mismatch: release R2.3 and commit 42d09ce do not match required R2.4/b7a91f2."
+        },
+        {
+          "issue_key": "SCRUM-268",
+          "comment_id": null,
+          "note": "No scope values provided; cannot confirm applicability to target release."
+        }
+      ],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 59.23,
+        "model_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 5312,
+        "completion_tokens": 350,
+        "reasoning_tokens": 53
+      }
+    },
+    {
+      "issue_key": "SCRUM-17",
+      "source_id": "REQ-12",
+      "summary": "Streaming completion integrity",
+      "mandatory": true,
+      "mandatory_source": "model+record",
+      "decision": "FAIL",
+      "status": "completed",
+      "failure": null,
+      "explanation": "QA evidence (c11668) for run STREAM-731 on R2.4/b7a91f2/atlas-assistant/production/p7 shows 49 of 50 cases passed but STREAM-50 produced a duplicated final message, violating the acceptance criterion that all mandatory streaming cases must complete without duplicate or missing final messages.",
+      "supporting_evidence": [
+        {
+          "issue_key": "SCRUM-326",
+          "comment_id": "11668",
+          "note": "Streaming QA run shows duplicate final message, matching target scope."
+        }
+      ],
+      "rejected_evidence": [],
+      "outstanding": [],
+      "observations": [],
+      "validation_notes": [],
+      "effort": {
+        "seconds": 116.25,
+        "model_calls": 4,
+        "tool_calls": 3,
+        "prompt_tokens": 8052,
+        "completion_tokens": 342,
+        "reasoning_tokens": 91
+      }
+    }
+  ],
+  "not_assessed": [],
+  "observations": [
+    {
+      "requirement": "SCRUM-16",
+      "issue_key": "SCRUM-234",
+      "comment_id": "11147",
+      "summary": "Developer note attempting to waive the criterion",
+      "found_by": "model"
+    }
+  ]
+}
