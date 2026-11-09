@@ -61,6 +61,12 @@ def test_invalid_project_argument_is_rejected(
     assert "project key" in capsys.readouterr().err
 
 
+def test_log_level_is_accepted_after_the_command() -> None:
+    args = cli.build_parser().parse_args(["import", "--log-level", "INFO", "--limit", "5"])
+    assert args.log_level == "INFO"
+    assert args.limit == 5
+
+
 def test_limit_must_be_positive(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         cli.main(["import", "--limit", "0"])

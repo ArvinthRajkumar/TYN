@@ -37,15 +37,18 @@ def _positive_int(text: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Return the argument parser for all commands."""
-    parser = argparse.ArgumentParser(prog="python -m tyn", description=__doc__)
-    parser.add_argument(
+    # Shared options live on each subcommand so they work after the command
+    # name, which is where people naturally type them.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
         "--log-level",
         default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="log verbosity on stderr (default WARNING)",
     )
+    parser = argparse.ArgumentParser(prog="python -m tyn", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    importer = commands.add_parser("import", help="import the dataset into Jira")
+    importer = commands.add_parser("import", parents=[common], help="import the dataset into Jira")
     importer.add_argument("--project", help="Jira project key (default JIRA_PROJECT_KEY)")
     importer.add_argument("--dataset", type=Path, default=DEFAULT_DATASET, help="dataset JSON path")
     importer.add_argument(
