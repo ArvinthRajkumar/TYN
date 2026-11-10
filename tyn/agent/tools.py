@@ -299,8 +299,6 @@ class JiraToolbox:
         except TypeError:
             raise ToolInputError("arguments must be a JSON object") from None
 
-    # Jira access ---------------------------------------------------------
-
     def _jira(self, action: Callable[[], Any]) -> Any:
         self.jira_calls += 1
         try:
@@ -362,8 +360,6 @@ class JiraToolbox:
             self._comments[key] = [comment_view(c, i) for i, c in enumerate(raw)]
         return self._comments[key]
 
-    # Structured access for code-side checks ---------------------------------
-
     def view(self, key: str) -> IssueView:
         """Return one in-scope issue view (cached)."""
         return self._issue(key)
@@ -418,8 +414,6 @@ class JiraToolbox:
         )
         in_scope = self._describe(outgoing)
         return manifest, [key for key in outgoing if key in in_scope]
-
-    # Rendering helpers ----------------------------------------------------
 
     def _row(self, view: IssueView, out: ToolOutput) -> str:
         out.show_issue(view.key)
@@ -484,8 +478,6 @@ class JiraToolbox:
         for comment in comments:
             groups.setdefault(comment.normalised_body(), []).append(comment)
         return list(groups.values())
-
-    # Tools ---------------------------------------------------------------
 
     def get_release_manifest(self, args: ReleaseArgs) -> ToolOutput:
         """Find the manifest for a release and show its rules and links."""

@@ -17,8 +17,6 @@ from tyn.errors import ConfigError
 
 DEFAULT_ENV_FILE: Final = Path(".env")
 DEFAULT_GROQ_MODEL: Final = "openai/gpt-oss-120b"
-# Stable Gemini Flash model with function calling and adjustable thinking;
-# see the README for how it was chosen and what it costs.
 DEFAULT_GEMINI_MODEL: Final = "gemini-3.8-flash"
 
 # Atlassian Cloud sites live on <site>.atlassian.net. Anything else (other

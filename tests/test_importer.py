@@ -142,7 +142,6 @@ def test_failed_comment_stops_that_issue_and_resumes_in_order(
     tmp_path: Path, dataset: Dataset
 ) -> None:
     fake = FakeJira()
-    # Comment posts run REQ-A 1/1, then EV-1 1/3, then EV-1 2/3: fail the third.
     fake.faults.append(Fault("POST", COMMENT_PATH, status=400, after=2))
     report = _run(fake, tmp_path, dataset)
     assert report.comments.failed == 1

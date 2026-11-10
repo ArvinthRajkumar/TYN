@@ -116,7 +116,6 @@ def test_discovery_falls_back_to_manifest_links_when_the_model_fails(world: Agen
 
 def _requirement_steps(world: AgentWorld, source: str, evidence: str, decision: str) -> list[Any]:
     comment = str(world.fake.comments[world.key(evidence)][0]["id"])
-    # RQ-1's evidence links onward to a dependency that must be opened too.
     extra = [call("get_issue", {"issue_key": world.key("EV-11")})] if source == "RQ-1" else []
     return [
         call("get_issue", {"issue_key": world.key(evidence)}),

@@ -26,8 +26,8 @@ IMPORT_NOTE: Final = (
     "Native Jira status, author and timestamps reflect the import, not the recorded scenario."
 )
 
-# Import order puts the manifest and requirements first so a small --limit
-# trial produces records whose links resolve to each other.
+# The manifest and requirements import first so a --limit run produces
+# records whose links resolve to each other.
 _KIND_PRIORITY: Final = {"manifest": 0, "requirement": 1}
 
 _RECORDED_HEADER: Final = re.compile(

@@ -52,8 +52,8 @@ def _positive_int(text: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Return the argument parser for all commands."""
-    # Shared options live on each subcommand so they work after the command
-    # name, which is where people naturally type them.
+    # Shared options live on each subcommand so they also work after the
+    # command name.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--log-level",

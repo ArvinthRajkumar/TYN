@@ -11,8 +11,8 @@ findings that are not already audited in the baseline. It needs no secrets
 and runs in CI.
 
 ``values`` looks for the exact configured Jira token, Jira email, Jira host
-and Groq and Gemini keys (read through ``tyn.config``) in tracked and untracked files and
-in every historical blob. It needs a local ``.env`` and prints only the name
+and Groq and Gemini keys (read through ``tyn.config``) in tracked and
+untracked files and in every historical blob. It needs a local ``.env`` and prints only the name
 of a leaked setting and where it was found, never the value.
 
 Exit code 1 means something was found.
