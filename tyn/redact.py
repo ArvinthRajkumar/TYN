@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from tyn.config import GroqSettings, JiraSettings
+    from tyn.config import GeminiSettings, GroqSettings, JiraSettings
 
 # Shorter values would mask ordinary words, so they are not treated as secrets.
 _MIN_SECRET_LENGTH: Final = 4
@@ -22,6 +22,8 @@ _GENERIC_PATTERNS: Final = (
     (re.compile(r"(?i)\b(basic|bearer)\s+[A-Za-z0-9+/=._-]{8,}"), r"\1 [REDACTED:AUTH]"),
     (re.compile(r"\bgsk_[A-Za-z0-9]{16,}"), "[REDACTED:GROQ_KEY]"),
     (re.compile(r"\bATATT[A-Za-z0-9_=-]{16,}"), "[REDACTED:ATLASSIAN_TOKEN]"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"), "[REDACTED:GOOGLE_KEY]"),
+    (re.compile(r"(?i)(x-goog-api-key\s*[:=]\s*)\S+"), r"\1[REDACTED:AUTH]"),
 )
 
 
@@ -65,7 +67,9 @@ class Redactor:
 
 
 def redactor_from_settings(
-    jira: "JiraSettings | None" = None, groq: "GroqSettings | None" = None
+    jira: "JiraSettings | None" = None,
+    groq: "GroqSettings | None" = None,
+    gemini: "GeminiSettings | None" = None,
 ) -> Redactor:
     """Build a redactor from whichever settings are loaded."""
     secrets: list[SecretValue] = []
@@ -82,4 +86,7 @@ def redactor_from_settings(
     if groq is not None:
         key = groq.groq_api_key.get_secret_value()
         secrets.append(SecretValue("GROQ_API_KEY", key, "[REDACTED:GROQ_API_KEY]"))
+    if gemini is not None:
+        key = gemini.gemini_api_key.get_secret_value()
+        secrets.append(SecretValue("GEMINI_API_KEY", key, "[REDACTED:GEMINI_API_KEY]"))
     return Redactor(secrets)

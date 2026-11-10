@@ -1,14 +1,14 @@
 """Client-side rate limiting for the model provider.
 
-``TokenPacer`` keeps a sliding 60 second window of token charges and sleeps
-before a request that would exceed the per-minute limit, so the run waits
-instead of collecting 429s. Requests reserve ``prompt estimate + completion
-cap`` and are settled to the real usage afterwards: the smoke test showed
-plain requests are charged their actual usage, but one tool-calling request
-was charged prompt plus cap, so reserving the cap is the safe choice.
+``TokenPacer`` keeps a sliding 60 second window of token charges, and
+optionally of requests, and sleeps before a request that would exceed either
+per-minute limit, so the run waits instead of collecting 429s. What a
+request reserves depends on the provider (see ``ResilientModel``): Groq
+counts output toward its minute limit, so the completion cap is reserved
+too; Gemini counts input only. Charges are settled to real usage afterwards.
 
-``DailyBudget`` persists usage per UTC day in ``state/usage.json`` and stops
-the run cleanly before the daily limit would be crossed.
+``DailyBudget`` persists usage per UTC day in ``state/usage.json`` and, when
+a daily limit is configured, stops the run cleanly before it would be crossed.
 """
 
 import json
@@ -63,20 +63,25 @@ class PacerStats:
 
 
 class TokenPacer:
-    """Sliding-window token budget for one model."""
+    """Sliding-window token budget, and optionally a request budget, for one model."""
 
     def __init__(
         self,
         tokens_per_minute: int,
         *,
+        requests_per_minute: int | None = None,
         headroom: float = 0.9,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.capacity = int(tokens_per_minute * headroom)
+        self.request_capacity = (
+            max(1, int(requests_per_minute * headroom)) if requests_per_minute else None
+        )
         self._monotonic = monotonic
         self._sleep = sleep
         self._charges: deque[_Charge] = deque()
+        self._requests: deque[float] = deque()
         self.stats = PacerStats()
 
     def used(self) -> int:
@@ -94,11 +99,21 @@ class TokenPacer:
         for _ in range(_MAX_WAIT_LOOPS):
             self._expire()
             used = sum(charge.tokens for charge in self._charges)
-            if used + tokens <= self.capacity:
-                charge = _Charge(self._monotonic(), tokens)
+            tokens_fit = used + tokens <= self.capacity
+            requests_fit = (
+                self.request_capacity is None or len(self._requests) < self.request_capacity
+            )
+            if tokens_fit and requests_fit:
+                now = self._monotonic()
+                charge = _Charge(now, tokens)
                 self._charges.append(charge)
+                if self.request_capacity is not None:
+                    self._requests.append(now)
                 return charge
-            wait = self._wait_for(used + tokens - self.capacity)
+            wait = 0.0 if tokens_fit else self._wait_for(used + tokens - self.capacity)
+            if not requests_fit:
+                wait = max(wait, self._requests[0] + WINDOW_SECONDS - self._monotonic() + 0.05)
+            wait = max(0.05, wait)
             self.stats.sleeps += 1
             self.stats.slept_seconds += wait
             self._sleep(wait)
@@ -124,6 +139,8 @@ class TokenPacer:
         cutoff = self._monotonic() - WINDOW_SECONDS
         while self._charges and self._charges[0].at <= cutoff:
             self._charges.popleft()
+        while self._requests and self._requests[0] <= cutoff:
+            self._requests.popleft()
 
     def _wait_for(self, excess: int) -> float:
         freed = 0
@@ -161,16 +178,18 @@ class _UsageFile(BaseModel):
 class DailyBudget:
     """Daily token accounting persisted in ``state/usage.json``.
 
-    Groq does not document whether its daily window is a calendar day or a
-    rolling 24 hours; a UTC calendar day is assumed and a long 429
-    ``retry-after`` from the provider stops the run as well.
+    Usage is always recorded. A cap is enforced only when ``limit`` is set
+    (Groq's free tier has one; Gemini has none unless configured). Providers
+    do not document whether daily windows are calendar days or rolling, so a
+    UTC calendar day is assumed, and a provider's own daily-quota 429 or long
+    ``retry-after`` stops the run as well.
     """
 
     def __init__(
         self,
         path: Path,
         model: str,
-        limit: int,
+        limit: int | None,
         *,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
     ) -> None:
@@ -200,7 +219,9 @@ class DailyBudget:
         return self._entry().counted
 
     def check(self, upcoming: int) -> None:
-        """Raise if ``upcoming`` more tokens would exceed today's limit."""
+        """Raise if ``upcoming`` more tokens would exceed today's limit, if one is set."""
+        if self._limit is None:
+            return
         used = self.used_today()
         if used + upcoming > self._limit:
             tomorrow = datetime.combine(self._today() + timedelta(days=1), datetime.min.time(), UTC)

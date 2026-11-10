@@ -11,7 +11,7 @@ findings that are not already audited in the baseline. It needs no secrets
 and runs in CI.
 
 ``values`` looks for the exact configured Jira token, Jira email, Jira host
-and Groq key (read through ``tyn.config``) in tracked and untracked files and
+and Groq and Gemini keys (read through ``tyn.config``) in tracked and untracked files and
 in every historical blob. It needs a local ``.env`` and prints only the name
 of a leaked setting and where it was found, never the value.
 
@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from tyn.config import load_groq_settings, load_jira_settings
+from tyn.config import load_jira_settings, optional_gemini_settings, optional_groq_settings
 from tyn.errors import ConfigError
 from tyn.redact import redactor_from_settings
 
@@ -115,11 +115,14 @@ def scan_values() -> int:
     """Look for exact configured secret values in the tree and in history."""
     try:
         jira = load_jira_settings()
-        groq = load_groq_settings()
     except ConfigError as exc:
         print(f"values scan needs the full configuration: {exc}")
         return 1
-    redactor = redactor_from_settings(jira, groq)
+    groq, gemini = optional_groq_settings(), optional_gemini_settings()
+    if groq is None and gemini is None:
+        print("values scan needs at least one model provider key (GROQ_API_KEY or GEMINI_API_KEY)")
+        return 1
+    redactor = redactor_from_settings(jira, groq=groq, gemini=gemini)
     leaks: list[str] = []
     files = working_tree_files()
     for path in files:

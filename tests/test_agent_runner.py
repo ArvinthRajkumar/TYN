@@ -8,7 +8,7 @@ import pytest
 
 from tests.agent_support import AgentWorld, ScriptedModel, build_world, call, make_loop
 from tyn.agent.budget import TokenEstimator
-from tyn.agent.checkpoint import CheckpointStore
+from tyn.agent.checkpoint import CheckpointStore, Provenance
 from tyn.agent.decision import decide
 from tyn.agent.discovery import DiscoveryStage
 from tyn.agent.llm import ChatResponse, ModelError, ResilientModel
@@ -23,6 +23,8 @@ from tyn.agent.models import (
 from tyn.agent.pacer import DailyBudget, DailyBudgetExhaustedError, TokenPacer
 from tyn.agent.runner import AssessConfig, AssessmentRunner
 from tyn.agent.trace import TraceRecorder
+
+PROVENANCE = Provenance("scripted", "scripted-model", "fakehash0001")
 
 
 @pytest.fixture
@@ -161,6 +163,7 @@ def _runner(
         trace=trace,
         store=store,
         config=AssessConfig(release="R5.0", **config),
+        provenance=PROVENANCE,
     )
     return runner, store
 
@@ -264,5 +267,69 @@ def test_fresh_run_keeps_the_previous_checkpoint_as_backup(
     )
     runner, store = _runner(world, tmp_path, steps, only="RQ-2")
     runner.run()
-    store.new("scripted-model")
+    store.new(PROVENANCE)
     assert store.path.with_suffix(".previous.json").exists()
+
+
+def test_run_token_cap_stops_cleanly_and_checkpoints(world: AgentWorld, tmp_path: Path) -> None:
+    from tyn.agent.llm import RunTokenCapReachedError
+
+    def over_cap(*_: Any) -> ChatResponse:
+        raise RunTokenCapReachedError(9_900, 10_000)
+
+    steps = (
+        _discovery_steps(world, _all_selected(world))
+        + _requirement_steps(world, "RQ-1", "EV-10", "FAIL")
+        + [over_cap]
+    )
+    runner, store = _runner(world, tmp_path, steps)
+    outcome = runner.run()
+    assert outcome.stopped_reason is not None
+    assert "MAX_RUN_TOKENS" in outcome.stopped_reason
+    saved = json.loads(store.path.read_text(encoding="utf-8"))
+    assert list(saved["results"]) == [world.key("RQ-1")]
+    assert saved["sessions"][0]["stopped_reason"] == outcome.stopped_reason
+
+
+def test_depleted_credits_stop_cleanly(world: AgentWorld, tmp_path: Path) -> None:
+    from tyn.agent.llm import PrepaidCreditsDepletedError
+
+    def no_credit(*_: Any) -> ChatResponse:
+        raise PrepaidCreditsDepletedError()
+
+    runner, _ = _runner(world, tmp_path, [no_credit])
+    outcome = runner.run()
+    assert outcome.stopped_reason is not None
+    assert "402" in outcome.stopped_reason
+    assert outcome.overall.partial
+
+
+def test_resume_refuses_a_checkpoint_from_another_provider(
+    world: AgentWorld, tmp_path: Path
+) -> None:
+    from tyn.errors import StateError
+
+    steps = _discovery_steps(world, _all_selected(world)) + _requirement_steps(
+        world, "RQ-2", "EV-20", "PASS"
+    )
+    runner, store = _runner(world, tmp_path, steps, only="RQ-2")
+    runner.run()
+    for other in (
+        Provenance("groq", "scripted-model", PROVENANCE.prompt_hash),
+        Provenance("scripted", "another-model", PROVENANCE.prompt_hash),
+        Provenance("scripted", "scripted-model", "000000000000"),
+    ):
+        with pytest.raises(StateError, match="refusing to mix"):
+            store.load(other)
+    assert store.load(PROVENANCE) is not None
+    assert store.load(None) is not None
+
+
+def test_checkpoints_without_provenance_are_refused(world: AgentWorld, tmp_path: Path) -> None:
+    from tyn.errors import StateError
+
+    store = CheckpointStore(world.fake.project, "agent-test-scope", "R5.0", root=tmp_path / "state")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps({"version": 1, "models": ["x"]}), encoding="utf-8")
+    with pytest.raises(StateError, match="older version"):
+        store.load(PROVENANCE)

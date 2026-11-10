@@ -9,11 +9,22 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from tyn.agent.checkpoint import Checkpoint, CheckpointStore, SessionStats, now_iso
+from tyn.agent.checkpoint import (
+    Checkpoint,
+    CheckpointStore,
+    Provenance,
+    SessionStats,
+    now_iso,
+)
 from tyn.agent.decision import OverallDecision, decide
 from tyn.agent.discovery import DiscoveryStage
 from tyn.agent.investigate import Investigator
-from tyn.agent.llm import RateLimitWaitTooLongError, ResilientModel
+from tyn.agent.llm import (
+    PrepaidCreditsDepletedError,
+    RateLimitWaitTooLongError,
+    ResilientModel,
+    RunTokenCapReachedError,
+)
 from tyn.agent.loop import AgentLoop, LoopLimits
 from tyn.agent.models import Discovery, RequirementResult, RequirementTarget
 from tyn.agent.pacer import DailyBudgetExhaustedError, TokenPacer
@@ -62,6 +73,7 @@ class AssessmentRunner:
         trace: TraceRecorder,
         store: CheckpointStore,
         config: AssessConfig,
+        provenance: Provenance,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._toolbox = toolbox
@@ -71,6 +83,7 @@ class AssessmentRunner:
         self._trace = trace
         self._store = store
         self._config = config
+        self._provenance = provenance
         self._monotonic = monotonic
 
     def run(self) -> AssessmentOutcome:
@@ -82,7 +95,12 @@ class AssessmentRunner:
         try:
             self._discover(checkpoint)
             self._investigate_all(checkpoint, session, started)
-        except (DailyBudgetExhaustedError, RateLimitWaitTooLongError) as exc:
+        except (
+            DailyBudgetExhaustedError,
+            RateLimitWaitTooLongError,
+            RunTokenCapReachedError,
+            PrepaidCreditsDepletedError,
+        ) as exc:
             session.stopped_reason = str(exc)
             logger.warning("assessment_stopped reason=%s", exc)
         finally:
@@ -91,12 +109,9 @@ class AssessmentRunner:
         return self._outcome(checkpoint, session.stopped_reason)
 
     def _open(self) -> Checkpoint:
-        existing = self._store.load() if (self._config.resume or self._config.only) else None
-        if existing is None:
-            return self._store.new(self._model.model_name)
-        if self._model.model_name not in existing.models:
-            existing.models.append(self._model.model_name)
-        return existing
+        reuse = self._config.resume or self._config.only is not None
+        existing = self._store.load(self._provenance) if reuse else None
+        return existing if existing is not None else self._store.new(self._provenance)
 
     def _discover(self, checkpoint: Checkpoint) -> None:
         if checkpoint.discovery is not None:
