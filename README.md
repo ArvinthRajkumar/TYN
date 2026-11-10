@@ -381,6 +381,13 @@ Measured numbers for the committed run are in `reports/metrics.json`.
   they support the conclusion. See the spot-check in
   [Real run, spot-check and fixes](#real-run-spot-check-and-fixes); the
   first Groq run had three verdicts that disagreed with the records.
+- **Verdict correctness is validated by manual spot-checks, not automated
+  tests.** The model decides whether evidence supports a decision, so the
+  test suite checks citations, scope facts and control flow, not whether a
+  verdict is right.
+- **One verdict lists both conflicting results as supporting evidence.** In
+  REQ-09 the report cites both contradictory rehearsal results under
+  supporting evidence, although the decision rests on their conflict.
 - **Scope extraction is pattern based.** Unusual phrasings fall back to
   `unknown`, which the prompt treats as "not a match".
 - **Jira search is eventually consistent.** If the importer is interrupted
@@ -414,41 +421,15 @@ Atlassian host validation, TLS always verified, timeouts and bounded
 retries everywhere, hashed dependency pins, `pip-audit`, `detect-secrets`
 over the full history, and a read-only CI token.
 
-## How I used AI assistance
+### How I used AI assistance
 
-This project was built with **Claude Code** (Anthropic's coding agent, in
-the Claude desktop app) running the Claude Opus model.
+- I used Claude (chat) to plan the approach and draft the build specification, and Claude Code to write the code, tests and documentation from it, phase by phase. I reviewed the dataset-analysis plan before any code was written and sent back changes. I chose the providers: Groq first, then Gemini after repeated tool_use_failed errors made the Groq run unreliable.
 
-What the AI did, under my instructions:
+- What I reviewed myself: the agent loop, the citation validator, the Jira tool layer and client, and their tests. I did not read the rest of the code line by line (for example the importer and report rendering); for those I relied on the test suite, CI and the tool's own checks.
 
-- read the brief and analysed the dataset structure (`DATASET_NOTES.md`);
-- checked the current Groq, Gemini and Atlassian documentation and wrote
-  the smoke tests (one measured Groq's rate-limit behaviour, the other
-  verified Gemini function calling and thought-signature replay);
-- proposed the architecture and token plan, then implemented the importer,
-  agent, reports, tests, CI and documentation;
-- ran the importer and the assessment against my Jira site and Groq
-  account, ran all checks, and committed in Conventional Commits;
-- spot-checked verdicts by reading the cited comments back from Jira,
-  diagnosed the three first-run verdicts that disagreed with the records,
-  and made the generic fixes described above;
-- at my request, switched the default provider from Groq to Gemini behind
-  the same interface, ran the Gemini validation sequence (smoke test,
-  two `--only` trials, one fresh full run) and spot-checked all twelve
-  final verdicts.
+- What I verified myself: I checked four of the twelve verdicts (REQ-01, REQ-02, REQ-09 and REQ-10) against the cited Jira comments, and the report's decision matched my reading each time. The tickets were marked Done in Jira, and the report did not treat that as proof.
 
-What I specified, reviewed and verified myself:
-
-- the requirements, constraints and security rules the work had to follow,
-  and the phase-by-phase process with review stops;
-- the Phase 0 plan, which I changed before approving (exact-only duplicate
-  folding, keyword-filtered comments, fact-only scope checks with snippets,
-  direction-labelled links, `--dry-run` and `--limit` for the importer,
-  `--only` for trials, injected instructions reported as observations);
-- the import was run on 5 records first and the full import only after my
-  approval;
-- AUTHOR TO COMPLETE: describe your own review of the code, the committed
-  report and the spot-checked verdicts.
+- What the code does not guarantee: it checks that evidence was opened and cited. The model, not the code, decides whether evidence supports a decision or resolves conflicting results. The tests use mocked responses for citation checks and evidence scope, but they do not test verdict correctness on specific scenarios. Verdict correctness was checked by manual spot-checks of a subset, not by automated tests.
 
 ## License
 
