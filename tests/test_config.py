@@ -195,3 +195,22 @@ def _gemini() -> object:
     from tyn.config import load_gemini_settings
 
     return load_gemini_settings(env_file=None)
+
+
+def test_empty_variables_fall_back_to_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tyn.config import DEFAULT_GEMINI_MODEL, load_gemini_settings
+
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key-0123456789")
+    monkeypatch.setenv("GEMINI_MODEL", "")
+    monkeypatch.setenv("GEMINI_TPD_LIMIT", "")
+    settings = load_gemini_settings(env_file=None)
+    assert settings.gemini_model == DEFAULT_GEMINI_MODEL
+    assert settings.gemini_tpd_limit is None
+
+
+def test_empty_secret_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tyn.config import load_gemini_settings
+
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    with pytest.raises(ConfigError, match="GEMINI_API_KEY is not set"):
+        load_gemini_settings(env_file=None)

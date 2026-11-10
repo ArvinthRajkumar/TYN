@@ -29,10 +29,13 @@ _PROJECT_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,9}$")
 _MODEL_ID = re.compile(r"^[A-Za-z0-9._/-]{1,128}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# An empty variable (for example "GEMINI_MODEL=") counts as unset, so the
+# documented default applies instead of failing validation on "".
 _COMMON_CONFIG = SettingsConfigDict(
     env_file_encoding="utf-8",
     extra="ignore",
     case_sensitive=False,
+    env_ignore_empty=True,
 )
 
 
