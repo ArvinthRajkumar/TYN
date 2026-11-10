@@ -67,7 +67,9 @@ def _checkpoint(explanation: str) -> Checkpoint:
         project="TYN",
         label="scope",
         release="R5.0",
-        models=["m"],
+        provider="gemini",
+        model="m",
+        prompt_hash="fakehash0001",
         started_at="2026-01-01T00:00:00+00:00",
         updated_at="2026-01-01T00:00:00+00:00",
         discovery=Discovery(manifest_key="TYN-1", requirements=targets, notes=["note"]),
@@ -198,3 +200,27 @@ def test_verify_clean_names_setting_and_file_but_not_value(
         verify_clean([planted], redactor)
     assert "JIRA_API_TOKEN" in str(caught.value)
     assert FAKE_TOKEN not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"arguments": "{\\"page_token\\": \\"' + "Ab9+/=" * 30 + '\\"}"}',
+        '{"page_token": "' + "Ab9_-" * 30 + '"}',
+        "more results: page_token=" + "Zz0" * 40,
+    ],
+)
+def test_pagination_cursors_are_shortened(text: str) -> None:
+    from tyn.report.build import mask_cursors
+
+    masked = mask_cursors(text)
+    assert "<cursor " in masked
+    assert "Ab9" not in masked
+    assert "Zz0Zz0" not in masked
+
+
+def test_short_values_and_other_keys_are_untouched() -> None:
+    from tyn.report.build import mask_cursors
+
+    text = '{"issue_key": "TYN-5", "page_token": "short"}'
+    assert mask_cursors(text) == text

@@ -15,6 +15,7 @@ from tyn.agent.llm import (
     ModelError,
     ModelRateLimitedError,
     ModelTransientError,
+    PrepaidCreditsDepletedError,
     RateLimitWaitTooLongError,
     ResilientModel,
     ToolCallGenerationError,
@@ -98,6 +99,7 @@ class FlakyModel:
     def __init__(self, failures: list[Exception]) -> None:
         self.failures = failures
         self.calls = 0
+        self.headers = {"x-ratelimit-remaining-tokens": "7000", "x-ratelimit-limit-tokens": "8000"}
 
     def complete(self, *args: Any, **kwargs: Any) -> ChatResponse:
         self.calls += 1
@@ -107,7 +109,7 @@ class FlakyModel:
             content="ok",
             tool_calls=[],
             usage=TokenUsage(prompt=120, completion=30, reasoning=7, cached=0),
-            headers={"x-ratelimit-remaining-tokens": "7000", "x-ratelimit-limit-tokens": "8000"},
+            headers=dict(self.headers),
         )
 
 
@@ -218,17 +220,18 @@ def test_unparseable_arguments_raise_a_short_error(raw: str) -> None:
         (413, "", ContextTooLargeError),
         (503, "", ModelTransientError),
         (401, "invalid_api_key", ModelError),
+        (402, "", PrepaidCreditsDepletedError),
     ],
 )
 def test_provider_status_errors_are_classified(status: int, code: str, expected: type) -> None:
     import groq
     import httpx
 
-    from tyn.agent.llm import _status_error
+    from tyn.agent.providers.groq import status_error
 
     response = httpx.Response(status, request=httpx.Request("POST", "https://api.example/v1"))
     error = groq.APIStatusError("x", response=response, body={"error": {"code": code}})
-    assert type(_status_error(error)) is expected
+    assert type(status_error(error)) is expected
 
 
 def test_waits_are_reported_separately_from_latency(tmp_path: Path) -> None:
@@ -261,3 +264,65 @@ def test_exhausted_generation_errors_keep_their_type(tmp_path: Path) -> None:
     resilient, _ = _resilient(FlakyModel([ToolCallGenerationError("bad")] * 4), tmp_path)
     with pytest.raises(ToolCallGenerationError, match="after 4 attempts"):
         resilient.complete(MESSAGES, [], "auto", 100)
+
+
+def test_request_window_limits_requests_per_minute() -> None:
+    clock = FakeClock()
+    pacer = TokenPacer(
+        1_000_000,
+        requests_per_minute=2,
+        headroom=1.0,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+    pacer.acquire(10)
+    clock.now += 5
+    pacer.acquire(10)
+    assert clock.sleeps == []
+    pacer.acquire(10)
+    assert clock.sleeps[0] == pytest.approx(55.05, abs=0.01)
+
+
+def test_unset_daily_limit_records_but_never_stops(tmp_path: Path) -> None:
+    budget = DailyBudget(tmp_path / "usage.json", "m", None, today=lambda: date(2026, 1, 5))
+    budget.record(TokenUsage(prompt=10_000_000, completion=1))
+    budget.check(10_000_000)
+    assert budget.used_today() == 10_000_001
+
+
+def test_run_token_cap_blocks_the_request_that_would_cross_it(tmp_path: Path) -> None:
+    from tyn.agent.llm import RunTokenCapReachedError
+
+    model = FlakyModel([])
+    clock = FakeClock()
+    resilient = ResilientModel(
+        model,
+        pacer=TokenPacer(8_000, monotonic=clock.monotonic, sleep=clock.sleep),
+        daily=None,
+        estimator=TokenEstimator(),
+        max_run_tokens=400,
+        sleep=clock.sleep,
+    )
+    resilient.complete([{"role": "user", "content": "x" * 40}], [], "auto", 100)
+    assert model.calls == 1
+    with pytest.raises(RunTokenCapReachedError, match="MAX_RUN_TOKENS"):
+        resilient.complete([{"role": "user", "content": "x" * 400}], [], "auto", 100)
+    assert model.calls == 1
+
+
+def test_gemini_style_pacing_reserves_input_only(tmp_path: Path) -> None:
+    clock = FakeClock()
+    pacer = TokenPacer(1_000, headroom=1.0, monotonic=clock.monotonic, sleep=clock.sleep)
+    inner = FlakyModel([])
+    inner.headers = {}
+    resilient = ResilientModel(
+        inner,
+        pacer=pacer,
+        daily=None,
+        estimator=TokenEstimator(),
+        reserve_output=False,
+        sleep=clock.sleep,
+    )
+    resilient.complete([{"role": "user", "content": "x" * 400}], [], "auto", 900)
+    assert clock.sleeps == []
+    assert pacer.used() == 120

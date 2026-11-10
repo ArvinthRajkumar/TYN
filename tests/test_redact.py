@@ -73,3 +73,17 @@ def test_logging_filter_masks_message_args_and_exceptions(redactor: Redactor) ->
     assert FAKE_GROQ_KEY not in output
     assert FAKE_EMAIL not in output
     assert "RuntimeError" in output
+
+
+def test_gemini_key_is_masked_by_value_and_pattern(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tyn.config import load_gemini_settings
+
+    configured = "fake-gemini-key-0123456789"
+    monkeypatch.setenv("GEMINI_API_KEY", configured)
+    redactor = redactor_from_settings(gemini=load_gemini_settings(env_file=None))
+    assert redactor.leaks(f"x {configured}") == ["GEMINI_API_KEY"]
+    assert configured not in redactor.redact(f"key={configured}")
+    google_shaped = "AIza" + "B" * 35
+    cleaned = Redactor([]).redact(f"url?key={google_shaped} x-goog-api-key: abcdef")
+    assert google_shaped not in cleaned
+    assert "abcdef" not in cleaned

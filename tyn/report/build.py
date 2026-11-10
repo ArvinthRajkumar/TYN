@@ -7,6 +7,7 @@ model-written text are normalised to plain hyphens for consistency.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Final
 
@@ -22,8 +23,21 @@ REPORT_VERSION: Final = 1
 _DASHES: Final = str.maketrans({chr(0x2014): "-", chr(0x2013): "-", chr(0x2012): "-"})
 
 
+# Jira pagination cursors are long opaque strings: useless to a reader and
+# indistinguishable from credentials for secret scanners, so artifacts keep
+# only their length. Matches JSON values (plain or escaped) and key=value text.
+_CURSOR: Final = re.compile(
+    r'(?P<key>page_?token\\?"\s*:\s*\\?"|page_?token=)(?P<value>[A-Za-z0-9+/=_.-]{16,})'
+)
+
+
+def mask_cursors(text: str) -> str:
+    """Replace opaque pagination cursors with a length marker."""
+    return _CURSOR.sub(lambda m: f"{m['key']}<cursor {len(m['value'])} chars>", text)
+
+
 def _clean(text: str, redactor: Redactor) -> str:
-    return redactor.redact(text.translate(_DASHES))
+    return redactor.redact(mask_cursors(text.translate(_DASHES)))
 
 
 def _ref(ref: EvidenceRef) -> dict[str, Any]:
@@ -82,7 +96,9 @@ def report_data(outcome: AssessmentOutcome, generated_at: str) -> dict[str, Any]
         "project": checkpoint.project,
         "scope_label": checkpoint.label,
         "release": checkpoint.release,
-        "models": checkpoint.models,
+        "provider": checkpoint.provider,
+        "model": checkpoint.model,
+        "prompt_hash": checkpoint.prompt_hash,
         "complete": not outcome.overall.partial and outcome.stopped_reason is None,
         "stopped_reason": outcome.stopped_reason,
         "overall": {
@@ -132,7 +148,8 @@ def render_markdown(data: dict[str, Any]) -> str:
         f"| Project | {data['project']} |",
         f"| Scope label | {data['scope_label']} |",
         f"| Manifest | {data['manifest_key'] or 'not found'} |",
-        f"| Model | {', '.join(data['models'])} |",
+        f"| Model | {data['model']} ({data['provider']}) |",
+        f"| Prompt hash | {data['prompt_hash']} |",
         f"| Generated | {data['generated_at']} |",
         f"| Overall decision computed by | {data['overall']['computed_by']} |",
         "",
@@ -313,7 +330,10 @@ def metrics_data(outcome: AssessmentOutcome) -> dict[str, Any]:
     discovery = checkpoint.discovery
     return {
         "release": checkpoint.release,
-        "models": checkpoint.models,
+        "provider": checkpoint.provider,
+        "model": checkpoint.model,
+        "prompt_hash": checkpoint.prompt_hash,
+        "sessions_count": len(checkpoint.sessions),
         "wall_time_seconds": round(sum(s.seconds for s in checkpoint.sessions), 2),
         "sessions": sessions,
         "totals": totals,

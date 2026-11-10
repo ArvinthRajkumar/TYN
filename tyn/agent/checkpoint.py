@@ -8,6 +8,7 @@ own counters, so metrics stay honest across resumes.
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -39,16 +40,31 @@ class SessionStats(BaseModel):
     stopped_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class Provenance:
+    """What produced a checkpoint's results; resuming requires an exact match."""
+
+    provider: str
+    model: str
+    prompt_hash: str
+
+    def describe(self) -> str:
+        """Return a one-line description for messages."""
+        return f"provider {self.provider}, model {self.model}, prompt hash {self.prompt_hash}"
+
+
 class Checkpoint(BaseModel):
     """Everything needed to resume and to report an assessment."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     project: str
     label: str
     release: str
-    models: list[str] = Field(default_factory=list)
+    provider: str
+    model: str
+    prompt_hash: str
     started_at: str
     updated_at: str
     discovery: Discovery | None = None
@@ -70,7 +86,7 @@ class CheckpointStore:
         self.path = safe_child(root / "assessments", f"{name}.json")
         self._identity = (project, label, release)
 
-    def new(self, model: str) -> Checkpoint:
+    def new(self, provenance: Provenance) -> Checkpoint:
         """Return an empty checkpoint, keeping any previous one as a backup."""
         if self.path.exists():
             self.path.replace(self.path.with_suffix(".previous.json"))
@@ -80,25 +96,48 @@ class CheckpointStore:
             project=project,
             label=label,
             release=release,
-            models=[model],
+            provider=provenance.provider,
+            model=provenance.model,
+            prompt_hash=provenance.prompt_hash,
             started_at=stamp,
             updated_at=stamp,
         )
 
-    def load(self) -> Checkpoint | None:
-        """Return the saved checkpoint, or None when there is none."""
+    def load(self, expected: Provenance | None) -> Checkpoint | None:
+        """Return the saved checkpoint, or None when there is none.
+
+        When ``expected`` is given, a checkpoint produced by another provider,
+        model or prompt version is refused, so a resumed report never mixes
+        results from different runs. Re-rendering passes None.
+        """
         if not self.path.exists():
             return None
         try:
-            checkpoint = Checkpoint.model_validate(
-                json.loads(self.path.read_text(encoding="utf-8"))
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise StateError(
+                f"{self.path.as_posix()} is unreadable; run without --resume to start over"
+            ) from None
+        if not isinstance(payload, dict) or payload.get("version") != 2:
+            raise StateError(
+                f"{self.path.as_posix()} was written by an older version without provider, "
+                "model and prompt provenance; run without --resume to start a fresh assessment"
             )
-        except (OSError, ValueError, ValidationError):
+        try:
+            checkpoint = Checkpoint.model_validate(payload)
+        except ValidationError:
             raise StateError(
                 f"{self.path.as_posix()} is unreadable; run without --resume to start over"
             ) from None
         if (checkpoint.project, checkpoint.label, checkpoint.release) != self._identity:
             raise StateError(f"{self.path.as_posix()} belongs to another assessment")
+        saved = Provenance(checkpoint.provider, checkpoint.model, checkpoint.prompt_hash)
+        if expected is not None and saved != expected:
+            raise StateError(
+                f"the saved assessment was produced by {saved.describe()}, but this run uses "
+                f"{expected.describe()}; refusing to mix them. Run without --resume and "
+                "--only to start a fresh assessment"
+            )
         return checkpoint
 
     def save(self, checkpoint: Checkpoint) -> None:

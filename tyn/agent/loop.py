@@ -16,10 +16,12 @@ from typing import Any, Final
 from tyn.agent.arguments import ArgumentError, parse_arguments
 from tyn.agent.budget import TokenEstimator
 from tyn.agent.llm import (
+    PROVIDER_CONTENT_KEY,
     ChatModel,
     ChatResponse,
     ContextTooLargeError,
     ModelError,
+    ToolCall,
     ToolCallGenerationError,
 )
 from tyn.agent.models import TokenUsage
@@ -127,7 +129,7 @@ class AgentLoop:
             state.turns.append(_assistant_message(response))
             for call in response.tool_calls:
                 if call.name == submit_name:
-                    done = self._handle_submit(call.id, call.arguments, validate, ledger, state)
+                    done = self._handle_submit(call, validate, ledger, state)
                     if done:
                         return self._finish(state)
                 else:
@@ -267,19 +269,18 @@ class AgentLoop:
 
     def _handle_submit(
         self,
-        call_id: str,
-        raw: str,
+        call: ToolCall,
         validate: Validator,
         ledger: Ledger,
         state: "_LoopState",
     ) -> bool:
         try:
-            check = validate(parse_arguments(raw), ledger)
+            check = validate(parse_arguments(call.arguments), ledger)
         except ArgumentError as exc:
             check = SubmitCheck(ok=False, error=str(exc))
         state.result.validation_notes.extend(check.notes)
         if check.ok:
-            state.turns.append(_tool_message(call_id, "accepted"))
+            state.turns.append(_tool_message(call.id, call.name, "accepted"))
             state.result.value = check.value
             return True
         state.repairs += 1
@@ -296,15 +297,17 @@ class AgentLoop:
         # need tool calls first, so only the former forces the submit tool.
         state.forced = check.force_resubmit
         state.pending_reads = check.pending_reads
-        state.turns.append(_tool_message(call_id, f"rejected: {check.error}"))
+        state.turns.append(_tool_message(call.id, call.name, f"rejected: {check.error}"))
         return False
 
     def _handle_tool(
-        self, scope: str, call: Any, ledger: Ledger, state: "_LoopState"
+        self, scope: str, call: ToolCall, ledger: Ledger, state: "_LoopState"
     ) -> str | None:
         state.tool_names[call.id] = call.name
         started = self._monotonic()
         status = "ok"
+        # The trace keeps parsed arguments, or the raw text when parsing failed.
+        arguments: dict[str, Any] | str = call.arguments
         try:
             arguments = parse_arguments(call.arguments)
             if call.name == "record_finding":
@@ -332,7 +335,7 @@ class AgentLoop:
             status=status,
             estimated_tokens=round(self._estimator.raw_text(text) * self._estimator.factor),
         )
-        state.turns.append(_tool_message(call.id, text))
+        state.turns.append(_tool_message(call.id, call.name, text))
         return None
 
     def _record_note(self, arguments: dict[str, Any], state: "_LoopState") -> str:
@@ -364,7 +367,7 @@ class _LoopState:
 
 
 def _assistant_message(response: ChatResponse) -> dict[str, Any]:
-    return {
+    message: dict[str, Any] = {
         "role": "assistant",
         "content": response.content or "",
         "tool_calls": [
@@ -376,7 +379,12 @@ def _assistant_message(response: ChatResponse) -> dict[str, Any]:
             for call in response.tool_calls
         ],
     }
+    if response.provider_content is not None:
+        # Kept so the adapter can replay the model's turn verbatim (Gemini
+        # thought signatures must be returned unchanged).
+        message[PROVIDER_CONTENT_KEY] = response.provider_content
+    return message
 
 
-def _tool_message(call_id: str, content: str) -> dict[str, Any]:
-    return {"role": "tool", "tool_call_id": call_id, "content": content}
+def _tool_message(call_id: str, name: str, content: str) -> dict[str, Any]:
+    return {"role": "tool", "tool_call_id": call_id, "name": name, "content": content}

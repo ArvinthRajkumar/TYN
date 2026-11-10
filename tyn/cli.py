@@ -11,10 +11,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-from tyn.agent.app import AssessOptions, run_assessment, validate_scope_value
+from tyn.agent.app import (
+    AssessOptions,
+    load_provider_config,
+    run_assessment,
+    validate_scope_value,
+)
 from tyn.agent.checkpoint import CheckpointStore, now_iso
 from tyn.agent.runner import AssessmentOutcome, outcome_from_checkpoint
-from tyn.config import load_groq_settings, load_jira_settings, validate_project_key
+from tyn.config import (
+    JiraSettings,
+    load_jira_settings,
+    optional_gemini_settings,
+    optional_groq_settings,
+    validate_project_key,
+)
 from tyn.errors import TynError
 from tyn.importer.dataset import load_dataset
 from tyn.importer.runner import Importer, ImportReport, ProgressEvent, StageCounts
@@ -197,11 +208,22 @@ def run_import(args: argparse.Namespace) -> int:
     return EXIT_FAILURES if report.has_failures else EXIT_OK
 
 
+def full_redactor(jira: JiraSettings) -> Redactor:
+    """Redact the Jira secrets and every configured provider key.
+
+    Keys of the provider not in use are included too when present, so a
+    stray value can never reach logs or artifacts.
+    """
+    return redactor_from_settings(
+        jira, groq=optional_groq_settings(), gemini=optional_gemini_settings()
+    )
+
+
 def run_assess(args: argparse.Namespace) -> int:
     """Execute the ``assess`` command."""
     jira = load_jira_settings()
-    groq_settings = load_groq_settings()
-    redactor = redactor_from_settings(jira, groq_settings)
+    provider = load_provider_config()
+    redactor = full_redactor(jira)
     configure_logging(args.log_level, redactor)
     try:
         project = validate_project_key(args.project or jira.jira_project_key)
@@ -218,7 +240,7 @@ def run_assess(args: argparse.Namespace) -> int:
         time_limit_minutes=float(args.time_limit_min),
     )
     try:
-        outcome = run_assessment(jira, groq_settings, options)
+        outcome = run_assessment(jira, provider, options)
     except TynError as exc:
         raise TynError(redactor.redact(str(exc))) from None
     print_assessment(outcome)
@@ -230,8 +252,7 @@ def run_assess(args: argparse.Namespace) -> int:
 def run_report(args: argparse.Namespace) -> int:
     """Execute the ``report`` command: no Jira or model calls are made."""
     jira = load_jira_settings()
-    groq_settings = load_groq_settings()
-    redactor = redactor_from_settings(jira, groq_settings)
+    redactor = full_redactor(jira)
     configure_logging(args.log_level, redactor)
     try:
         project = validate_project_key(args.project or jira.jira_project_key)
@@ -242,7 +263,7 @@ def run_report(args: argparse.Namespace) -> int:
         validate_scope_value("label", args.label),
         validate_scope_value("release", args.release),
     )
-    checkpoint = store.load()
+    checkpoint = store.load(None)
     if checkpoint is None:
         raise TynError(f"no saved assessment at {store.path.as_posix()}; run assess first")
     outcome = outcome_from_checkpoint(checkpoint)
@@ -261,6 +282,8 @@ def print_written(paths: list[Path]) -> None:
 
 def print_assessment(outcome: AssessmentOutcome) -> None:
     """Print a short console summary of an assessment."""
+    saved = outcome.checkpoint
+    print(f"Provider: {saved.provider}, model {saved.model}, prompt hash {saved.prompt_hash}")
     print(f"Overall decision: {outcome.overall.decision.value}")
     for reason in outcome.overall.reasons:
         print(f"  {reason}")

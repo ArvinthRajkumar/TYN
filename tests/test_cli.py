@@ -82,7 +82,8 @@ def test_report_command_renders_saved_checkpoint(
 
     monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key-0123456789")
     monkeypatch.setattr(cli, "load_jira_settings", cli_load_without_env_file)
-    monkeypatch.setattr(cli, "load_groq_settings", lambda: _groq_without_env_file())
+    monkeypatch.setattr(cli, "optional_groq_settings", lambda: _groq_without_env_file())
+    monkeypatch.setattr(cli, "optional_gemini_settings", lambda: None)
     checkpoint = _checkpoint("Fails on the target build.").model_copy(
         update={"label": "scope", "release": "R5.0", "project": "TYN"}
     )
@@ -100,7 +101,8 @@ def test_report_without_checkpoint_is_an_error(
 ) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "fake-groq-key-0123456789")
     monkeypatch.setattr(cli, "load_jira_settings", cli_load_without_env_file)
-    monkeypatch.setattr(cli, "load_groq_settings", lambda: _groq_without_env_file())
+    monkeypatch.setattr(cli, "optional_groq_settings", lambda: _groq_without_env_file())
+    monkeypatch.setattr(cli, "optional_gemini_settings", lambda: None)
     assert cli.main(["report", "--label", "scope", "--release", "R5.0"]) == cli.EXIT_ERROR
     assert "run assess first" in capsys.readouterr().err
 

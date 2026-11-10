@@ -5,11 +5,11 @@
 - Configuration comes only from environment variables or a local `.env`
   file, loaded and validated by `tyn/config.py`. `.env` is git-ignored and
   never committed; `.env.example` holds placeholders only.
-- Secrets (`JIRA_API_TOKEN`, `GROQ_API_KEY`, and `JIRA_EMAIL`) are held as
+- Secrets (`JIRA_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and `JIRA_EMAIL`) are held as
   `SecretStr`, so they do not appear in reprs, logs or error messages.
   Configuration errors name the variable, never its value.
 - Use a dedicated, revocable Atlassian API token for this tool and revoke it
-  when the assessment is over. The Groq key should also be dedicated.
+  when the assessment is over. Model provider keys should also be dedicated.
 - A logging filter masks the configured values, the basic-auth header and
   generic credential patterns in every log line and exception.
 - Report, trace and metrics files are redacted before they are written and
@@ -39,8 +39,10 @@
   redirects are not followed, so credentials are not replayed elsewhere.
 - **Resource exhaustion.** Every HTTP call has connect and read timeouts;
   retries are bounded with backoff and jitter; model turns, tool calls,
-  per-requirement time and overall time are capped; token use is paced per
-  minute and capped per day.
+  per-requirement time and overall time are capped; token and request use
+  is paced per minute, `MAX_RUN_TOKENS` caps the tokens of one run, a daily
+  cap applies when configured, and a depleted prepaid balance (HTTP 402)
+  stops the run instead of retrying.
 - **File writes.** Output goes only to `reports/` and `state/`, with fixed
   file names chosen by code and paths re-checked after resolution.
 - **Supply chain.** Dependencies are pinned with hashes and installed with

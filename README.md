@@ -11,7 +11,8 @@ It has two parts:
   status, relationships, evidence, and the fictional actors, roles and event
   times. It is idempotent and resumable.
 - **Agent** (`python -m tyn assess`): reads Jira only through read-only,
-  scope-enforced tools. A model (Groq, `openai/gpt-oss-120b` by default)
+  scope-enforced tools. A model (Gemini `gemini-3.8-flash` by default;
+  Groq `openai/gpt-oss-120b` is still supported through the same interface)
   chooses which records to read; code enforces scope, validates every
   citation, bounds every loop and computes the overall decision.
 
@@ -37,8 +38,8 @@ flowchart LR
     end
     JIRA -->|read-only tools<br/>project and label ANDed in code| DISC
     JIRA -->|read-only tools| INV
-    LLM[Groq model] <-->|tool calls, paced| DISC
-    LLM <-->|tool calls, paced| INV
+    LLM[Model provider<br/>Gemini default, Groq optional] <-->|function calls, paced| DISC
+    LLM <-->|function calls, paced| INV
     INV --> STATE[(state/<br/>checkpoints, usage)]
     AGG --> OUT[reports/<br/>report, trace, metrics<br/>redacted]
 ```
@@ -49,13 +50,15 @@ flowchart LR
 | `tyn/jira/` | REST v3 client (`JiraReader` read-only, `JiraWriter` importer-only), JQL builder, ADF |
 | `tyn/importer/` | Dataset model, Jira field mapping, idempotent two-pass import, crash-safe state |
 | `tyn/agent/` | Tools, scope extraction, prompts, bounded loop, pacing, discovery, runner |
+| `tyn/agent/providers/` | Gemini and Groq adapters behind one `ChatModel` interface |
 | `tyn/report/` | Report, trace and metrics rendering, redaction and verification |
-| `scripts/` | Groq smoke test, secret scanner |
+| `scripts/` | Gemini and Groq smoke tests, secret scanner |
 
 ## Setup (Windows, PowerShell)
 
 Requirements: Python 3.12 (`py -3.12`), git, a Jira Cloud site where you
-can create a project, and a Groq API key.
+can create a project, and a Gemini API key from Google AI Studio (or a Groq
+key if you set `LLM_PROVIDER=groq`).
 
 ```powershell
 git clone https://github.com/ArvinthRajkumar/TYN.git
@@ -82,9 +85,29 @@ printed.
 | `JIRA_EMAIL` | Account email for the API token |
 | `JIRA_API_TOKEN` | A **dedicated, revocable** API token used only for this tool |
 | `JIRA_PROJECT_KEY` | Default project key (`--project` overrides) |
-| `GROQ_API_KEY` | Groq key |
-| `GROQ_MODEL` | Default `openai/gpt-oss-120b` |
-| `GROQ_TPM_LIMIT`, `GROQ_TPD_LIMIT` | Your plan's tokens per minute and per day (free tier: 8000, 200000) |
+| `LLM_PROVIDER` | `gemini` (default) or `groq` |
+| `MAX_RUN_TOKENS` | Hard cap on prompt plus output tokens for one `assess` invocation (default 400000); the run stops cleanly and checkpoints before a request would cross it |
+| `GEMINI_API_KEY` | A dedicated Gemini API key |
+| `GEMINI_MODEL` | Default `gemini-3.8-flash` (see below) |
+| `GEMINI_RPM_LIMIT`, `GEMINI_TPM_LIMIT` | Your project's requests and input tokens per minute for the model, from the AI Studio rate-limit page |
+| `GEMINI_TPD_LIMIT` | Optional daily token cap; unset means none |
+| `GEMINI_THINKING_LEVEL` | `low` by default to keep cost and latency down |
+| `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_TPM_LIMIT`, `GROQ_TPD_LIMIT` | Only for `LLM_PROVIDER=groq` (free tier: 8000 per minute, 200000 per day) |
+
+An empty variable counts as unset, so its default applies.
+
+### Model choice
+
+`gemini-3.8-flash` is a stable (not preview) Gemini model that supports
+function calling and adjustable thinking, and is the newest Flash model in
+the Gemini API documentation at the time of writing. Published price
+(Standard tier, per 1M tokens): $0.75 input and $3.75 output through
+31 December 2026, then $1.50 and $7.50; thinking tokens are billed as
+output. A full assessment costs well under one US dollar. The docs do not
+publish per-model rate limits; they are shown on the AI Studio rate-limit
+page for your project's tier. Gemini counts input tokens per minute and
+returns HTTP 402 when a prepaid balance is depleted, which stops the run
+cleanly.
 
 Create the Jira project yourself (any template; a single Done column is
 fine because statuses are not used). The importer creates a `Source
@@ -93,12 +116,15 @@ Reference` link type if your account may, otherwise it uses `Relates`.
 ### Check the model connection (optional)
 
 ```powershell
-python -m scripts.smoke_groq
+python -m scripts.smoke_gemini
 ```
 
-One forced tool-call round trip, a parallel tool-call check and a probe of
-how the per-minute budget is charged; prints usage and `x-ratelimit-*`
-headers, never the key. About 1,500 tokens.
+Runs function-call round trips through the real Gemini adapter: a forced
+call (mode ANY with one allowed function), the answer after replaying the
+model's turn verbatim (thought signatures included), and two calls in one
+turn answered together. Prints usage (prompt, output, thinking, cached),
+never the key. A few hundred tokens. `python -m scripts.smoke_groq` does the
+same for Groq.
 
 ## Import
 
@@ -144,9 +170,13 @@ python -m tyn assess --label tyn-release-assessment-v2 --release R2.4
 | `--max-model-calls 10` | Per requirement, before a verdict is forced |
 | `--time-limit-min 90` | Overall wall-clock limit |
 
-When the daily token budget would be exceeded, or the provider asks for a
-long wait, the run stops cleanly, saves its checkpoint, prints when to
-resume, and writes a report marked partial. Resume with `--resume`.
+When `MAX_RUN_TOKENS` or a configured daily cap would be exceeded, the
+provider's daily quota is exhausted, a prepaid balance is depleted (402), or
+the provider asks for a long wait, the run stops cleanly, saves its
+checkpoint, says why, and writes a report marked partial. Resume with
+`--resume`. Checkpoints record the provider, model and a hash of the prompts
+and tool schemas; `--resume` and `--only` refuse to continue a checkpoint
+produced by a different one, so a report never mixes runs.
 
 To re-render the reports from the saved checkpoint without any Jira or
 model calls:
@@ -191,55 +221,76 @@ read-only token and no secrets.
 
 ## Real run, spot-check and fixes
 
-The committed artifacts come from the first full run against the imported
-project (agent code at commit `a8631da`).
+### History
+
+1. **First full run, Groq `openai/gpt-oss-120b`** (agent code `a8631da`):
+   BLOCKED with 3 PASS, 4 FAIL, 5 INSUFFICIENT_EVIDENCE; its artifacts are
+   in commit `1c1b57d`. A spot-check against the cited Jira comments found
+   every citation correct, but three verdicts disagreed with the records,
+   each from a generic weakness: deciding after opening one of two linked
+   evidence records, letting one failure override an unresolved
+   contradiction between equally authoritative QA results, and requiring a
+   prompt version for a criterion unrelated to prompt quality. Fixes: a
+   code-side completeness guard that requires every in-scope record linked
+   from the requirement and its evidence to be opened before a verdict is
+   accepted (`1a980d4`), clarified rule precedence and prompt-version scope
+   (`5d03011`), forcing the verdict once requested records are read
+   (`a9d7d30`), and cached-token accounting (`91aeeef`).
+2. **Later fresh Groq run** with the fixed code: **partial**. Ten of twelve
+   requirements were assessed; three of them failed after repeated
+   `tool_use_failed` errors from the provider, and the run then stopped on a
+   352 second rate-limit wait near the free tier's daily limit. Its output
+   was not committed.
+3. **Provider switched to Gemini `gemini-3.8-flash`** (`7b240d9`). A smoke
+   test confirmed forced calls, verbatim replay with thought signatures and
+   parallel calls; `--only` trials on REQ-10 and REQ-02 matched the records;
+   then **one fresh full run** (agent code `e18ee31`, prompt hash
+   `61daed23e9a2`, one session, no `--resume` or `--only`) produced every
+   committed artifact in `reports/`.
+
+The prompt rules were refined after reviewing earlier verdicts against this
+dataset's records, so the results are partly tuned to this dataset. The
+rules are written generally and the code contains no ticket-specific logic,
+but the final verdicts should not be read as an untuned benchmark.
+
+### Final run (committed artifacts)
 
 | Measure | Value |
 | --- | --- |
 | Overall decision | **BLOCKED** (computed in code) |
-| Requirements | 12 mandatory: 3 PASS, 4 FAIL, 5 INSUFFICIENT_EVIDENCE |
-| Model calls, tool calls | 49, 36 (one provider `tool_use_failed`, retried) |
-| Tokens | 94.6K prompt (18.7K of them cached), 5.5K completion (1.7K reasoning) |
-| Largest single request | 2,948 prompt tokens against a 5,000 budget; no pruning was needed |
-| Wall time | 1,029 s, of which 955 s was client-side pacing; no 429 responses |
+| Requirements | 12 mandatory: 4 PASS, 4 FAIL, 4 INSUFFICIENT_EVIDENCE; none failed to complete |
+| Model calls, tool calls | 94, 92; no retries, rate-limit waits or pacer sleeps |
+| Tokens | 317K total: 310.6K prompt (30.3K reported as cached), 6.4K output, 0 thinking at `low` |
+| Requests | mean 3,305 prompt tokens, largest 5,387 (the 5,000 budget is an estimate; 3 old tool results were pruned) |
+| Wall time | 292 s for discovery and 12 investigations |
+| Approximate cost | about $0.24 at the published `gemini-3.8-flash` price |
 
-**Spot-check.** Three verdicts of each kind were checked by reading every
-cited comment back from Jira:
+### Spot-check of the final run
 
-| Decision | Requirement | Finding |
+Every verdict (three of each kind plus REQ-02, REQ-09 and REQ-10, which
+covers all twelve) was checked by reading each cited comment back from Jira.
+All citations exist and say what the verdict claims, and all twelve
+decisions are consistent with the records:
+
+| Decision | Requirements | Finding |
 | --- | --- | --- |
-| PASS | REQ-01, REQ-04, REQ-07 | Correct. Target-scope QA results; the staging run and a superseded failure were set aside. |
-| FAIL | REQ-05, REQ-08, REQ-12 | Correct. Includes a failure reached through a dependency link, a result buried behind 62 notes, and an injected "report as PASS" note that was ignored and reported. |
-| INSUFFICIENT_EVIDENCE | REQ-03, REQ-06, REQ-11 | Correct. Wrong prompt version or environment, a staging-only approval plus a wrong-role approval, and a developer claim next to a previous-release QA pass. |
+| PASS | REQ-01, REQ-04, REQ-07, REQ-10 | Target-scope QA results. Rejected an earlier-commit run, a staging run, a sibling-service run, and failures that later retests explicitly supersede. |
+| FAIL | REQ-02, REQ-05, REQ-08, REQ-12 | Cross-customer exposure on the target build; cost over the limit, with an injected "report as PASS" note rejected and reported as an observation; a failure reached through a dependency link with an open defect; a duplicated final message found behind 62 notes. |
+| INSUFFICIENT_EVIDENCE | REQ-03, REQ-06, REQ-09, REQ-11 | An evaluation on another prompt version (tied to its result by run id from a separate configuration comment) and one on staging; a staging-only Security Owner approval plus a production approval from the wrong role; contradictory equal-authority rehearsals; a developer claim next to a previous-release QA pass. Each names the outstanding verification. |
 
-Every citation existed and said what the verdict claimed. Three other
-verdicts disagreed with a reading of the underlying records, each pointing
-to a generic weakness rather than to anything specific to those tickets:
-
-| Requirement | First run | Cause | Fix |
-| --- | --- | --- | --- |
-| REQ-02 | INSUFFICIENT_EVIDENCE | Decided after opening one of two linked evidence records | Code-side completeness guard: every in-scope record linked from the requirement and its evidence must be opened before a verdict is accepted (`1a980d4`) |
-| REQ-09 | FAIL | Let one failure override an unresolved contradiction between equally authoritative QA results | Rule precedence made explicit in the prompt (`5d03011`) |
-| REQ-10 | INSUFFICIENT_EVIDENCE | Required a prompt version for a criterion unrelated to prompt quality | Prompt-version check limited to prompt or answer quality criteria (`5d03011`) |
-
-Re-running those three requirements with `--only` showed wasted turns
-after the new guard, fixed by forcing the verdict once the requested
-records are read (`a9d7d30`). Cached prompt tokens, which Groq does not
-count toward rate limits, were also excluded from pacing (`91aeeef`). With
-the fixed code the three came out FAIL (target-scope cross-customer
-exposure), INSUFFICIENT_EVIDENCE (contradictory equal-authority rehearsals)
-and PASS (explicitly superseding retest); the overall decision stays
-BLOCKED.
-
-**Pending:** the committed artifacts are still those of the first run. A
-fresh full run with the fixed code needs about 90K tokens and did not fit in
-the same day's free-tier budget after the first run and the re-runs. It
-replaces the artifacts once the daily window resets.
+Minor quality notes: two verdicts list routine "picked this up" chatter
+among rejected evidence, and REQ-09 lists both conflicting results as
+supporting evidence.
 
 ## Design choices
 
-- **Hand-written tool loop on the official `groq` SDK**, no agent framework,
-  so every bound, retry and validation is visible and testable.
+- **Hand-written tool loop on the official SDKs** (`google-genai`, `groq`),
+  no agent framework, so every bound, retry and validation is visible and
+  testable. Providers sit behind one `ChatModel` interface; the Gemini
+  adapter disables automatic function calling, forces the verdict with mode
+  ANY and one allowed function name, answers every call of a turn together,
+  replays the model's turn verbatim so thought signatures are returned, and
+  sends tool schemas reduced to the subset Gemini supports.
 - **Structured tools, never raw JQL.** `search_issues` takes allow-listed
   filters; values are quoted and escaped; project and scope label are always
   ANDed in by code; every key must belong to the project and every fetched
@@ -268,8 +319,11 @@ replaces the artifacts once the daily window resets.
 
 ## Token and context strategy
 
-Groq's free tier for `openai/gpt-oss-120b` allows 8K tokens per minute and
-200K per day (check the console limits page for your account). Measures:
+Context size is kept small regardless of provider; the limits differ.
+Gemini limits requests and input tokens per minute (from your project's
+tier) and has no daily cap unless you set one; Groq's free tier for
+`openai/gpt-oss-120b` allows 8K tokens per minute and 200K per day.
+Measures:
 
 - **Small fixed prompt.** System prompt about 500 tokens; investigation
   tools about 900 tokens of schema; the seed is only the requirement text,
@@ -284,19 +338,20 @@ Groq's free tier for `openai/gpt-oss-120b` allows 8K tokens per minute and
   request would exceed it, the oldest tool results are replaced by stubs;
   facts the model saved with `record_finding` stay in the seed.
 - **413 handling.** The context is pruned and the request retried once.
-- **Pacing.** A sliding 60 second window from `GROQ_TPM_LIMIT` (with 10%
-  headroom) sleeps before a request that would exceed the minute budget.
-  Each request reserves prompt estimate plus completion cap, settled to
-  real usage; the provider's `x-ratelimit-remaining-tokens` is adopted when
-  it reports less headroom. Small completion caps (512 per tool turn, 1,024
-  for the verdict) and `reasoning_effort=low` keep reservations small.
-  Cached prompt tokens are not counted, as Groq documents that they do not
-  count toward rate limits.
+- **Pacing.** Sliding 60 second windows for tokens and, for Gemini,
+  requests (with 10% headroom) sleep before a request that would exceed a
+  minute limit. Gemini counts input tokens, so requests reserve their prompt
+  estimate; Groq also counts output, so they reserve prompt plus completion
+  cap. Charges are settled to real usage. Thinking is set low
+  (`GEMINI_THINKING_LEVEL`, or `reasoning_effort=low` on Groq). Cached
+  prompt tokens are not counted toward Groq's limits, as Groq documents.
+- **Run cap.** `MAX_RUN_TOKENS` bounds the tokens of one invocation; the
+  request that would cross it is never sent.
 - **Daily budget.** Usage per UTC day is persisted in `state/usage.json`;
-  the run stops before `GROQ_TPD_LIMIT` and resumes with `--resume`.
+  a cap is enforced only when configured (`GROQ_TPD_LIMIT`, or the optional
+  `GEMINI_TPD_LIMIT`).
 - **No dependency on prompt caching**; cached tokens are recorded when the
-  provider reports them (it did: 18.7K of 94.6K prompt tokens in the first
-  run, because every request starts with the same system prompt and tools).
+  provider reports them.
 - **Steering instead of wandering.** Once the evidence a rejection asked
   for has been read, or the model answers in plain text after reading, the
   next call is forced to `submit_verdict`.
@@ -305,21 +360,27 @@ Measured numbers for the committed run are in `reports/metrics.json`.
 
 ## Known limits
 
-- **Free-tier throughput.** At 8K tokens per minute a full assessment takes
-  about 17 minutes, mostly waiting; one full run uses about half of the
-  200K daily tokens, so a second full run on the same day hits the daily
-  stop (as happened here: see the pending note above). `gpt-oss-120b` on Groq does not support parallel tool calls, so each
-  tool call costs one model turn.
-- **Rate-limit accounting is partly undocumented.** The smoke test showed
-  plain requests charged at actual usage, but one tool-calling request was
-  charged prompt plus completion cap; the pacer therefore reserves the cap.
-  Groq does not document whether the daily window is a calendar day; UTC
-  days are assumed and long `retry-after` values also stop the run.
+- **Provider limits are partly undocumented.** Gemini's per-model rate
+  limits are shown only in AI Studio for your project, so the pacer uses the
+  values you configure. On Groq's free tier (8K tokens per minute, 200K per
+  day) a full run took about 17 minutes and a second run on the same day hit
+  the daily limit; `gpt-oss-120b` there does not support parallel tool calls
+  and produced repeated `tool_use_failed` errors. Groq's smoke test showed
+  one tool-calling request charged prompt plus completion cap, so the Groq
+  pacer reserves the cap. Daily windows are assumed to be UTC days, and a
+  provider's daily-quota 429 or long `retry-after` stops the run as well.
+- **Gemini pricing changes.** The published `gemini-3.8-flash` price
+  doubles from 1 January 2027.
+- **Results are partly tuned to this dataset.** Prompt rules were refined
+  after reviewing earlier verdicts against these records (see History).
+- **The input budget is an estimate.** It is calibrated against reported
+  usage, but a single request can exceed it slightly (largest 5,387 tokens
+  in the final run against a 5,000 budget).
 - **Model judgement can still be wrong.** Citations are checked for
   existence and the linked records for having been read, not for whether
   they support the conclusion. See the spot-check in
   [Real run, spot-check and fixes](#real-run-spot-check-and-fixes); the
-  first run had three verdicts that disagreed with the records.
+  first Groq run had three verdicts that disagreed with the records.
 - **Scope extraction is pattern based.** Unusual phrasings fall back to
   `unknown`, which the prompt treats as "not a match".
 - **Jira search is eventually consistent.** If the importer is interrupted
@@ -340,7 +401,9 @@ Measured numbers for the committed run are in `reports/metrics.json`.
 - The source link direction (from the record that lists the link) is
   meaningful; incoming links are shown but labelled as such.
 - Typographic dashes in model-written text are normalised to hyphens in the
-  committed artifacts.
+  committed artifacts, and opaque Jira pagination cursors are shortened to a
+  length marker (they are useless to a reader and look like credentials to
+  secret scanners).
 
 ## Security
 
@@ -359,16 +422,20 @@ the Claude desktop app) running the Claude Opus model.
 What the AI did, under my instructions:
 
 - read the brief and analysed the dataset structure (`DATASET_NOTES.md`);
-- checked the current Groq and Atlassian documentation and wrote the
-  smoke test that measured rate-limit behaviour;
+- checked the current Groq, Gemini and Atlassian documentation and wrote
+  the smoke tests (one measured Groq's rate-limit behaviour, the other
+  verified Gemini function calling and thought-signature replay);
 - proposed the architecture and token plan, then implemented the importer,
   agent, reports, tests, CI and documentation;
 - ran the importer and the assessment against my Jira site and Groq
   account, ran all checks, and committed in Conventional Commits;
-- spot-checked nine verdicts by reading the cited comments back from Jira,
-  diagnosed the three verdicts that disagreed with the records, and made
-  the generic fixes described above, re-running only the affected
-  requirements to confirm them.
+- spot-checked verdicts by reading the cited comments back from Jira,
+  diagnosed the three first-run verdicts that disagreed with the records,
+  and made the generic fixes described above;
+- at my request, switched the default provider from Groq to Gemini behind
+  the same interface, ran the Gemini validation sequence (smoke test,
+  two `--only` trials, one fresh full run) and spot-checked all twelve
+  final verdicts.
 
 What I specified, reviewed and verified myself:
 
