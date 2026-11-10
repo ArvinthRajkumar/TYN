@@ -162,9 +162,9 @@ class _DayUsage(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _count_legacy_totals(cls, data: Any) -> Any:
-        # Entries written before cached tokens were tracked count in full,
-        # which errs toward stopping early rather than hitting the limit.
+    def _default_counted(cls, data: Any) -> Any:
+        # Without a counted value the total counts in full, which errs toward
+        # stopping early rather than hitting the limit.
         if isinstance(data, dict) and "counted" not in data:
             return {**data, "counted": data.get("total", 0)}
         return data

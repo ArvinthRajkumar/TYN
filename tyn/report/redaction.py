@@ -1,9 +1,9 @@
 """Redaction of committed artifacts.
 
 Artifacts are redacted before they are written and verified after: the
-configured Jira token, email and site host and the Groq key (taken from the
-environment through ``tyn.config``) must not appear in any file under
-``reports/``. Scenario actor names, roles and timestamps are untouched.
+configured Jira token, email and site host and the Groq and Gemini keys
+(taken from the environment through ``tyn.config``) must not appear in any
+file under ``reports/``. Scenario actor names, roles and timestamps are untouched.
 """
 
 from pathlib import Path

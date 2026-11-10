@@ -250,7 +250,7 @@ def test_cached_prompt_tokens_do_not_count_toward_limits(tmp_path: Path) -> None
     assert (saved["total"], saved["cached"], saved["counted"]) == (700, 400, 300)
 
 
-def test_legacy_usage_entries_count_in_full(tmp_path: Path) -> None:
+def test_usage_entries_without_counted_count_in_full(tmp_path: Path) -> None:
     path = tmp_path / "usage.json"
     path.write_text(
         json.dumps({"version": 1, "days": {"2026-01-05": {"m": {"prompt": 900, "total": 950}}}}),

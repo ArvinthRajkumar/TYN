@@ -137,8 +137,7 @@ class AgentLoop:
                     if failure:
                         return self._finish(state, failure=failure)
             if state.pending_reads and set(state.pending_reads) <= ledger.opened:
-                # Everything the rejection asked for has been read: decide now
-                # instead of wandering into unrelated searches.
+                # Everything the rejection asked for has been read.
                 state.pending_reads = ()
                 state.forced = True
 
@@ -236,8 +235,8 @@ class AgentLoop:
                     state.failure = f"model failure: {exc}"
                     self._trace.event("model_failure", scope, error=str(exc))
                     return None
-                # Repeated malformed tool calls: ask once for the verdict itself,
-                # a simpler output, before giving up on the requirement.
+                # Ask once for the verdict alone, a simpler output, before
+                # giving up on the requirement.
                 self._trace.event("generation_fallback", scope, error=str(exc))
                 state.forced = True
                 note = {
@@ -306,7 +305,6 @@ class AgentLoop:
         state.tool_names[call.id] = call.name
         started = self._monotonic()
         status = "ok"
-        # The trace keeps parsed arguments, or the raw text when parsing failed.
         arguments: dict[str, Any] | str = call.arguments
         try:
             arguments = parse_arguments(call.arguments)

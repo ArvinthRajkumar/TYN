@@ -1,7 +1,7 @@
 """Validated model of the import dataset.
 
 Unknown keys are rejected rather than ignored: silently dropping a field
-would lose recorded evidence, which the brief requires us to preserve.
+would lose recorded evidence, which the brief requires keeping.
 """
 
 import json

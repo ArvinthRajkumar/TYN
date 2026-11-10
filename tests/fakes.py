@@ -23,7 +23,11 @@ API = "/rest/api/3/"
 
 @dataclass
 class Fault:
-    """A fault applied to the next matching request(s)."""
+    """A fault applied to matching requests.
+
+    ``after`` lets that many matching requests through first, and
+    ``apply_first`` performs the write before failing the response.
+    """
 
     method: str
     path_pattern: str
@@ -31,8 +35,8 @@ class Fault:
     exception: type[Exception] | None = None
     headers: dict[str, str] = field(default_factory=dict)
     times: int = 1
-    apply_first: bool = False  # perform the write, then fail the response
-    after: int = 0  # let this many matching requests through first
+    apply_first: bool = False
+    after: int = 0
 
     def matches(self, method: str, path: str) -> bool:
         return method == self.method and re.fullmatch(self.path_pattern, path) is not None
