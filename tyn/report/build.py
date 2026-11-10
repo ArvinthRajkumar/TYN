@@ -7,6 +7,7 @@ model-written text are normalised to plain hyphens for consistency.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Final
 
@@ -22,8 +23,21 @@ REPORT_VERSION: Final = 1
 _DASHES: Final = str.maketrans({chr(0x2014): "-", chr(0x2013): "-", chr(0x2012): "-"})
 
 
+# Jira pagination cursors are long opaque strings: useless to a reader and
+# indistinguishable from credentials for secret scanners, so artifacts keep
+# only their length. Matches JSON values (plain or escaped) and key=value text.
+_CURSOR: Final = re.compile(
+    r'(?P<key>page_?token\\?"\s*:\s*\\?"|page_?token=)(?P<value>[A-Za-z0-9+/=_.-]{16,})'
+)
+
+
+def mask_cursors(text: str) -> str:
+    """Replace opaque pagination cursors with a length marker."""
+    return _CURSOR.sub(lambda m: f"{m['key']}<cursor {len(m['value'])} chars>", text)
+
+
 def _clean(text: str, redactor: Redactor) -> str:
-    return redactor.redact(text.translate(_DASHES))
+    return redactor.redact(mask_cursors(text.translate(_DASHES)))
 
 
 def _ref(ref: EvidenceRef) -> dict[str, Any]:
