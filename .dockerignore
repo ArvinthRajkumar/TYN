@@ -6,7 +6,7 @@
 .venv
 venv
 state
-reports/raw
+reports
 inputs
 docs
 secrets

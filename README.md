@@ -190,16 +190,55 @@ input error, 130 interrupted.
 
 ## Docker
 
-**Untested here: Docker is not installed on the development machine, so
-the image has not been built or run.** The Dockerfile uses a digest-pinned
-`python:3.12.10-slim-bookworm`, installs hash-checked runtime dependencies,
-runs as a non-root user and contains no secrets.
+The Dockerfile has three stages on a digest-pinned
+`python:3.12.10-slim-bookworm` base: hash-checked runtime dependencies, a
+`test` stage with the dev tools, and the `runtime` image (the default
+target). The runtime image runs as an unprivileged user (uid 10001), keeps
+the code root-owned and read-only, and takes configuration only from the
+environment at run time.
+
+Build the image and run the checks inside a container:
 
 ```powershell
-docker build -t tyn .
-docker run --rm --env-file .env -v ${PWD}/inputs:/app/inputs:ro -v ${PWD}/state:/app/state -v ${PWD}/reports:/app/reports tyn import
-docker run --rm --env-file .env -v ${PWD}/state:/app/state -v ${PWD}/reports:/app/reports tyn assess --label tyn-release-assessment-v2 --release R2.4
+docker build --target runtime -t tyn:local .
+docker run --rm --entrypoint id tyn:local
+docker run --rm tyn:local --help
+docker build --target test -t tyn:test .
+docker run --rm tyn:test
 ```
+
+Run the agent and the importer with named volumes for `state/` and
+`reports/`, so a container run never overwrites the committed artifacts:
+
+```powershell
+docker volume create tyn-state
+docker volume create tyn-reports
+docker run --rm --env-file .env -v tyn-state:/app/state -v tyn-reports:/app/reports tyn:local assess --label tyn-release-assessment-v2 --release R2.4 --only REQ-10
+docker run --rm --env-file .env -v "${PWD}\inputs:/app/inputs:ro" -v tyn-state:/app/state tyn:local import --dry-run
+docker run --rm -v tyn-reports:/app/reports --entrypoint cat tyn:local reports/release_report.md
+```
+
+`docker run --env-file` passes values literally, so write `.env` values
+without quotes (`KEY=value`).
+
+Verified on Windows 11 with Docker Desktop 4.99 (Linux containers, engine
+29.9.3), using the commands above:
+
+| Check | Result |
+| --- | --- |
+| Runtime image | Builds; 265 MB; runs as `uid=10001(tyn)`; `reports/` and `state/` are the only paths the service user owns |
+| Image contents | No `.env`, dataset, brief or state files anywhere in the filesystem; the layer history and image config hold none of the configured secret values |
+| `--help` | Prints the command list |
+| No environment | Exits 2 and names each missing variable, printing no values |
+| Test stage | ruff and format check clean, mypy clean on 68 files, 262 tests passed |
+| `assess --only REQ-10` | PASS citing SCRUM-26 comment 10109, the same as the committed report; 8 model calls, 17.6K tokens (about $0.015), 27 s; `git status` unchanged afterwards |
+| `import --dry-run` | Nothing to create: 400 issues, 2,059 comments and 76 links already present, no duplicates |
+| CI | Builds the runtime image on Ubuntu on every push and checks the user id and `--help` |
+
+Scope: the image is built locally and in CI and is not published to a
+registry. Full assessments and the real import were run with the native CLI;
+inside the container the agent ran a single-requirement assessment and the
+importer a dry run.
 
 ## Tests and checks
 
@@ -393,7 +432,6 @@ Measured numbers for the committed run are in `reports/metrics.json`.
 - **Jira search is eventually consistent.** If the importer is interrupted
   during an ambiguous write and re-run within seconds, a duplicate is
   possible; the importer reports duplicates it finds.
-- **Docker is untested** (no Docker on the development machine).
 
 ## Assumptions
 

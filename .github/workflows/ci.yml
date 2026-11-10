@@ -39,3 +39,20 @@ jobs:
 
       - name: Secret scan of full git history
         run: python -m scripts.scan_secrets history
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Build the runtime image (no push)
+        run: docker build --target runtime --tag tyn:ci .
+
+      - name: Image runs as the service user and shows its help
+        run: |
+          test "$(docker run --rm --entrypoint id tyn:ci -u)" = "10001"
+          docker run --rm tyn:ci --help
